@@ -137,7 +137,7 @@ your lights" case.
 
 Like the WiZ protocol itself, this tool has no authentication — anything on
 your LAN can control the bulbs. That is a property of the bulbs' firmware,
-not of wizctl. Do not run this script as part of any internet-exposed service.
+not of wiz. Do not run this script as part of any internet-exposed service.
 
 ## License
 
