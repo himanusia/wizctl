@@ -47,14 +47,14 @@ There are no third-party packages on any platform.
 **With pipx (recommended):**
 
 ```sh
-pipx install git+https://github.com/himanusia/wiz.git
+pipx install git+https://github.com/himanusia/wizctl.git
 ```
 
 **Or plain curl** (macOS/Linux):
 
 ```sh
 mkdir -p ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/himanusia/wiz/main/wiz.py \
+curl -fsSL https://raw.githubusercontent.com/himanusia/wizctl/main/wiz.py \
   -o ~/.local/bin/wiz
 chmod +x ~/.local/bin/wiz
 ```
@@ -117,10 +117,11 @@ output, meaningful exit codes, no interactivity, no cloud calls. Point your
 agent at the script and it can control your lights from natural language
 ("turn the desk lamp to night mode").
 
-If you use an AI assistant with a skills system (Hermes Agent, Claude, etc.),
-drop a small skill file next to your other skills telling
-the model when and how to call `wiz` — see the command table above; that is
-all an agent needs.
+A ready-made agent skill ships in this repo at
+[`skills/wiz/SKILL.md`](skills/wiz/SKILL.md) — copy it into your assistant's
+skills directory (Hermes Agent, Claude, etc.) and it knows when and how to
+call `wiz`. The command table above is all an agent really needs if you
+prefer writing your own.
 
 ## Supported hardware
 
