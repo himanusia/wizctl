@@ -3,15 +3,15 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wiz"
-version = "0.1.0"
+name = "wizctl"
+version = "0.2.0"
 description = "Control Philips WiZ lights over LAN - no cloud, no bridge, no dependencies."
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.6"
 
 [project.scripts]
-wiz = "wiz:main"
+wizctl = "wizctl:main"
 
 [tool.setuptools]
-py-modules = ["wiz"]
+py-modules = ["wizctl"]
