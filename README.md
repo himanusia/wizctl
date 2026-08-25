@@ -1,19 +1,19 @@
-# wizctl
+# wiz
 
 Control Philips WiZ smart lights from your terminal — no cloud, no bridge, no account, no dependencies.
 
-`wizctl` speaks the WiZ Local API directly (JSON over UDP port 38899), the same
+`wiz` speaks the WiZ Local API directly (JSON over UDP port 38899), the same
 protocol the official mobile app uses when your phone is on the same network.
 Everything runs locally: discovery, status, and control. It works with any
 number of bulbs and never leaves your LAN.
 
 ```console
-$ wizctl find
+$ wiz find
 found 2 light(s):
   192.168.1.50    -          on, dim=80%
   192.168.1.51    desk       off, dim=100%
 
-$ wizctl night desk
+$ wiz night desk
 1 light(s):
   192.168.1.51    -> ON   10%, 2700K
 ```
@@ -26,57 +26,64 @@ $ wizctl night desk
   on the same network.
 - **Multi-light by design.** Discovery finds every bulb on the network; give
   them names, then target all of them or one at a time.
-- **Single file, stdlib only.** Copy `wizctl.py` anywhere a Python 3.6+
+- **Single file, stdlib only.** Copy `wiz.py` anywhere a Python 3.6+
   interpreter exists.
 
 ## Requirements
 
-Any system with **Python 3.6+** (already preinstalled on macOS and most Linux
-distros). On Windows, run commands as `python wizctl.py <command>`. There are
-no third-party packages.
+Any system with **Python 3.6+**:
+
+- **macOS / Linux** — Python is preinstalled (macOS may prompt to allow
+  "Local Network" access the first time; approve it).
+- **Windows** — works too. Install Python from [python.org](https://www.python.org/downloads/)
+  (or `winget install Python.Python.3`), then run commands as
+  `python wiz.py <command>`. Windows Firewall may ask for network access the
+  first time; allow it. Everything else behaves identically.
+
+There are no third-party packages on any platform.
 
 ## Install
 
 **With pipx (recommended):**
 
 ```sh
-pipx install git+https://github.com/himanusia/wizctl.git
+pipx install git+https://github.com/himanusia/wiz.git
 ```
 
 **Or plain curl** (macOS/Linux):
 
 ```sh
 mkdir -p ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/himanusia/wizctl/main/wizctl.py \
-  -o ~/.local/bin/wizctl
-chmod +x ~/.local/bin/wizctl
+curl -fsSL https://raw.githubusercontent.com/himanusia/wiz/main/wiz.py \
+  -o ~/.local/bin/wiz
+chmod +x ~/.local/bin/wiz
 ```
 
 Make sure `~/.local/bin` is on your `PATH`, then try:
 
 ```sh
-wizctl find
+wiz find
 ```
 
-**Manual:** just download `wizctl.py` and run it directly — `python3 wizctl.py
+**Manual:** just download `wiz.py` and run it directly — `python3 wiz.py
 find`. Installing is optional; the script has zero dependencies.
 
 ## Usage
 
 ```
-wizctl                          show status of every known light
-wizctl find                     discover all WiZ lights on the network
-wizctl on | off                 turn every light on / off
-wizctl <10-100>                 brightness percent (turns lights on)
-wizctl night | warm | white | cool
-                                temperature presets (night = dim warm)
-wizctl temp <2700-6500>         color temperature in Kelvin
-wizctl rgb RRGGBB               RGB color (color models only; white-only
-                                models silently ignore it)
-wizctl scene <id>               activate a scene by numeric id (1-32)
-wizctl rename <name> [@target]  give light(s) a friendly name
-wizctl forget [target]          remove light(s) from the cache
-wizctl add <ip>                 manually add a light by IP
+wiz                          show status of every known light
+wiz find                     discover all WiZ lights on the network
+wiz on | off                 turn every light on / off
+wiz <10-100>                 brightness percent (turns lights on)
+wiz night | warm | white | cool
+                             temperature presets (night = dim warm)
+wiz temp <2700-6500>         color temperature in Kelvin
+wiz rgb RRGGBB               RGB color (color models only; white-only
+                             models silently ignore it)
+wiz scene <id>               activate a scene by numeric id (1-32)
+wiz rename <name> [@target]  give light(s) a friendly name
+wiz forget [target]          remove light(s) from the cache
+wiz add <ip>                 manually add a light by IP
 ```
 
 ### Targeting individual lights
@@ -85,12 +92,12 @@ Every command accepts an optional target: a friendly name you assigned with
 `rename`, or a bare IP address.
 
 ```sh
-wizctl rename desk              # renames every known light to 'desk'
-wizctl rename lamp @desk        # renames only the light currently named 'desk'
-wizctl on desk                  # turn on just that light
-wizctl 40 @lamp                 # 40% brightness on 'lamp'
-wizctl warm 192.168.1.50        # presets accept an IP too
-wizctl off                      # no target = every known light
+wiz rename desk              # renames every known light to 'desk'
+wiz rename lamp @desk        # renames only the light currently named 'desk'
+wiz on desk                  # turn on just that light
+wiz 40 @lamp                 # 40% brightness on 'lamp'
+wiz warm 192.168.1.50        # presets accept an IP too
+wiz off                      # no target = every known light
 ```
 
 Without a target, commands apply to every light found so far. Lights that do
@@ -100,8 +107,20 @@ failed, so it composes cleanly in scripts.
 
 ### How state is stored
 
-Discovery results and names live in `~/.config/wizctl/lights.json`. Nothing
+Discovery results and names live in `~/.config/wiz/lights.json`. Nothing
 else is written anywhere. Delete the file to start fresh.
+
+## Using with AI agents
+
+`wiz` is deliberately agent-friendly: single command surface, plain-text
+output, meaningful exit codes, no interactivity, no cloud calls. Point your
+agent at the script and it can control your lights from natural language
+("turn the desk lamp to night mode").
+
+If you use an AI assistant with a skills system (Hermes Agent, Claude, etc.),
+drop a small skill file next to your other skills telling
+the model when and how to call `wiz` — see the command table above; that is
+all an agent needs.
 
 ## Supported hardware
 
@@ -134,7 +153,7 @@ case.
 
 Like the WiZ protocol itself, this tool has no authentication — anything on
 your LAN can control the bulbs. That is a property of the bulbs' firmware, not
-of wizctl. Do not run this script as part of any internet-exposed service.
+of wiz. Do not run this script as part of any internet-exposed service.
 
 ## License
 

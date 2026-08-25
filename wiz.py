@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
-"""wizctl - control Philips WiZ lights over your LAN. No cloud, no bridge, no dependencies.
+"""wiz - control Philips WiZ lights over your LAN. No cloud, no bridge, no dependencies.
 
 Works with any number of bulbs on the local network. Discovers them via UDP
 broadcast, remembers them in a small cache file, and can address all lights
 at once or individual ones by IP or a friendly name you assign.
 
 Usage:
-  wizctl                          show status of every known light
-  wizctl find                     re-discover all WiZ lights on the network
-  wizctl on | off                 turn every light on / off
-  wizctl <10-100>                 brightness percent (turns lights on)
-  wizctl night | warm | white | cool
+  wiz                          show status of every known light
+  wiz find                     re-discover all WiZ lights on the network
+  wiz on | off                 turn every light on / off
+  wiz <10-100>                 brightness percent (turns lights on)
+  wiz night | warm | white | cool
                                   temperature presets (night = dim warm)
-  wizctl temp <2700-6500>         color temperature in Kelvin
-  wizctl rgb RRGGBB               set RGB color (color models only;
+  wiz temp <2700-6500>         color temperature in Kelvin
+  wiz rgb RRGGBB               set RGB color (color models only;
                                   white-only models silently ignore it)
-  wizctl scene <id>               activate a scene by numeric id (1-32)
-  wizctl rename <name>            give the targeted light(s) a friendly name
-  wizctl forget [target]          remove light(s) from the cache
-  wizctl add <ip>                 manually add a light by IP
+  wiz scene <id>               activate a scene by numeric id (1-32)
+  wiz rename <name>            give the targeted light(s) a friendly name
+  wiz forget [target]          remove light(s) from the cache
+  wiz add <ip>                 manually add a light by IP
 
 Any command accepts an optional target suffix to address specific lights:
-  wizctl on desk                  where 'desk' is a name previously set
-  wizctl 40 192.168.1.50          or a bare IP
+  wiz on desk                  where 'desk' is a name previously set
+  wiz 40 192.168.1.50          or a bare IP
 Without a target, commands apply to every light found so far.
 
-Configuration lives in ~/.config/wizctl/lights.json
+Configuration lives in ~/.config/wiz/lights.json
 
 Requirements: Python 3.6+ standard library only.
 Protocol: WiZ Local API - JSON over UDP port 38899 (same LAN as the bulbs).
@@ -37,7 +37,7 @@ import sys
 import time
 
 PORT = 38899
-CONF_DIR = os.path.expanduser("~/.config/wizctl")
+CONF_DIR = os.path.expanduser("~/.config/wiz")
 CACHE_FILE = os.path.join(CONF_DIR, "lights.json")
 DISCOVERY_WAIT = 2.0
 CMD_TIMEOUT = 1.5
@@ -145,7 +145,7 @@ def resolve_targets(args):
     matches = [ip for ip, name in lights.items()
                if name and name.lower().startswith(target.lower())]
     if not matches:
-        sys.exit("wizctl: no light named '%s' (run 'wizctl' to see known lights)" % target)
+        sys.exit("wiz: no light named '%s' (run 'wiz' to see known lights)" % target)
     return args, matches
 
 
@@ -159,7 +159,7 @@ def parse_temp(value):
     try:
         kelvin = int(value)
     except ValueError:
-        sys.exit("wizctl: temp must be a number in Kelvin, e.g. 'wizctl temp 3500'")
+        sys.exit("wiz: temp must be a number in Kelvin, e.g. 'wiz temp 3500'")
     return max(2200, min(kelvin, 6500))
 
 
@@ -177,19 +177,19 @@ def build_params(cmd, args):
         return params
     if cmd == "temp":
         if len(args) != 1:
-            sys.exit("usage: wizctl temp <kelvin>")
+            sys.exit("usage: wiz temp <kelvin>")
         return {"temp": parse_temp(args[0]), "state": True}
     if cmd == "rgb":
         if len(args) != 1 or len(args[0]) != 6:
-            sys.exit("usage: wizctl rgb RRGGBB")
+            sys.exit("usage: wiz rgb RRGGBB")
         try:
             r, g, b = (int(args[0][i:i + 2], 16) for i in (0, 2, 4))
         except ValueError:
-            sys.exit("wizctl: rgb expects hex like ff8800")
+            sys.exit("wiz: rgb expects hex like ff8800")
         return {"r": r, "g": g, "b": b, "state": True}
     if cmd == "scene":
         if len(args) != 1 or not args[0].isdigit():
-            sys.exit("usage: wizctl scene <id>")
+            sys.exit("usage: wiz scene <id>")
         return {"sceneId": int(args[0]), "state": True}
     return None
 
@@ -267,9 +267,9 @@ def cmd_find():
 
 def cmd_rename(args, targets):
     if not args or len(args) != 1:
-        sys.exit("usage: wizctl rename <name> [@target]")
+        sys.exit("usage: wiz rename <name> [@target]")
     if not targets:
-        sys.exit("wizctl: no lights known yet - run 'wizctl find' first")
+        sys.exit("wiz: no lights known yet - run 'wiz find' first")
     lights = load_cache()
     for ip in targets:
         lights[ip] = args[0]
@@ -288,7 +288,7 @@ def cmd_forget(targets):
 
 def cmd_add(ip):
     if not looks_like_ip(ip):
-        sys.exit("wizctl: '%s' does not look like an IP address" % ip)
+        sys.exit("wiz: '%s' does not look like an IP address" % ip)
     lights = load_cache()
     lights.setdefault(ip, None)
     save_cache(lights)
@@ -309,7 +309,7 @@ def main():
         return cmd_find()
     if cmd == "add":
         if len(argv) != 2:
-            sys.exit("usage: wizctl add <ip>")
+            sys.exit("usage: wiz add <ip>")
         cmd_add(argv[1])
         return 0
 
@@ -322,14 +322,14 @@ def main():
         return 0
 
     if not targets:
-        print("no lights known yet - run 'wizctl find' first, "
-              "or add one with 'wizctl add <ip>'")
+        print("no lights known yet - run 'wiz find' first, "
+              "or add one with 'wiz add <ip>'")
         return 1
 
     params = build_params(cmd, args[1:])
     if params is None and cmd not in ("on", "off") and not cmd.isdigit() \
             and cmd not in PRESETS and cmd != "status":
-        sys.exit("wizctl: unknown command '%s' (run 'wizctl' for help)" % cmd)
+        sys.exit("wiz: unknown command '%s' (run 'wiz' for help)" % cmd)
 
     print("%d light(s):" % len(targets))
     results = [apply(ip, params) for ip in targets]
