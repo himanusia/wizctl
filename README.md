@@ -8,12 +8,12 @@ Control Philips WiZ smart lights from your terminal — no cloud, no bridge,
 no account, no dependencies.
 
 ```console
-$ wizctl find
+$ wiz find
 found 2 light(s):
   192.168.1.50    -          on, dim=80%
   192.168.1.51    desk       off, dim=100%
 
-$ wizctl night desk
+$ wiz night desk
 1 light(s):
   192.168.1.51    -> ON   10%, 2700K
 ```
@@ -24,6 +24,22 @@ on your LAN; nothing ever leaves it.
 
 ## Install
 
+### With your AI agent (recommended)
+
+Paste this single line into any coding assistant — Claude Code, Codex,
+Cursor, Hermes, anything:
+
+```text
+Install and set up https://github.com/himanusia/wizctl for me by following its README, then show me my lights.
+```
+
+This README is written so an agent can follow it end to end: detect the OS,
+pick an install method below, learn the commands (or copy
+[`skills/wiz/SKILL.md`](skills/wiz/SKILL.md) into its skills directory), and
+verify with a live `wiz` call.
+
+### Manual
+
 **pipx / pip**
 
 ```sh
@@ -33,44 +49,31 @@ pipx install git+https://github.com/himanusia/wizctl.git
 **curl** (macOS/Linux)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/himanusia/wizctl/main/wizctl.py -o ~/.local/bin/wizctl && chmod +x ~/.local/bin/wizctl
+curl -fsSL https://raw.githubusercontent.com/himanusia/wizctl/main/wiz.py -o ~/.local/bin/wiz && chmod +x ~/.local/bin/wiz
 ```
 
-**Windows** — `winget install Python.Python.3` first if needed, then either
-install command above (run `wizctl` from a terminal) or download
-`wizctl.py` and use `python wizctl.py <command>`. Allow the firewall prompt
-on first run.
+Make sure `~/.local/bin` is on your `PATH`.
 
-**With your AI agent** — paste this single line into any coding assistant
-(Claude Code, Codex, Cursor, Hermes, ...):
-
-```text
-Install and set up https://github.com/himanusia/wizctl for me by following its README, then show me my lights.
-```
-
-This README is written so an agent can follow it end to end: check PATH,
-pick an install method for the OS, learn the commands below (or copy
-[`skills/wizctl/SKILL.md`](skills/wizctl/SKILL.md) into its skills directory),
-and verify with `wizctl`.
-
-> Type `wiz` a lot? Add once to your shell profile: `alias wiz=wizctl`
+**Windows** — install Python first if needed (`winget install Python.Python.3`),
+then save `wiz.py` anywhere and run `python wiz.py <command>`; allow the
+firewall prompt on first run. Or just use the agent line above.
 
 ## Usage
 
 ```
-wizctl                          show status of every known light
-wizctl find                     discover all WiZ lights on the network
-wizctl on | off                 turn every light on / off
-wizctl <10-100>                 brightness percent (turns lights on)
-wizctl night | warm | white | cool
-                                temperature presets (night = dim warm)
-wizctl temp <2700-6500>         color temperature in Kelvin
-wizctl rgb RRGGBB               RGB color (color models only; white-only
-                                models silently ignore it)
-wizctl scene <id>               activate a scene by numeric id (1-32)
-wizctl rename <name> [@target]  give light(s) a friendly name
-wizctl forget [target]          remove light(s) from the cache
-wizctl add <ip>                 manually add a light by IP
+wiz                          show status of every known light
+wiz find                     discover all WiZ lights on the network
+wiz on | off                 turn every light on / off
+wiz <10-100>                 brightness percent (turns lights on)
+wiz night | warm | white | cool
+                             temperature presets (night = dim warm)
+wiz temp <2700-6500>         color temperature in Kelvin
+wiz rgb RRGGBB               RGB color (color models only; white-only
+                             models silently ignore it)
+wiz scene <id>               activate a scene by numeric id (1-32)
+wiz rename <name> [@target]  give light(s) a friendly name
+wiz forget [target]          remove light(s) from the cache
+wiz add <ip>                 manually add a light by IP
 ```
 
 ### Targeting individual lights
@@ -79,12 +82,12 @@ Every command accepts an optional target: a friendly name you assigned with
 `rename`, or a bare IP address.
 
 ```sh
-wizctl rename desk              # renames every known light to 'desk'
-wizctl rename lamp @desk        # renames only the light currently named 'desk'
-wizctl on desk                  # turn on just that light
-wizctl 40 @lamp                 # 40% brightness on 'lamp'
-wizctl warm 192.168.1.50        # presets accept an IP too
-wizctl off                      # no target = every known light
+wiz rename desk              # renames every known light to 'desk'
+wiz rename lamp @desk        # renames only the light currently named 'desk'
+wiz on desk                  # turn on just that light
+wiz 40 @lamp                 # 40% brightness on 'lamp'
+wiz warm 192.168.1.50        # presets accept an IP too
+wiz off                      # no target = every known light
 ```
 
 Without a target, commands apply to every light found so far. Lights that do
@@ -93,16 +96,15 @@ non-zero if any target failed, so it composes cleanly in scripts.
 
 ### State
 
-Discovery results and names live in `~/.config/wizctl/lights.json`. Nothing
+Discovery results and names live in `~/.config/wiz/lights.json`. Nothing
 else is written anywhere. Delete the file to start fresh.
 
 ## Using with AI agents
 
-`wizctl` is deliberately agent-friendly: single command surface, plain-text
+`wiz` is deliberately agent-friendly: single command surface, plain-text
 output, meaningful exit codes, no interactivity, no cloud calls. A ready-made
-agent skill ships at [`skills/wizctl/SKILL.md`](skills/wizctl/SKILL.md) —
-point your assistant at this repo and it handles the rest (see the one-liner
-in **Install**).
+agent skill ships at [`skills/wiz/SKILL.md`](skills/wiz/SKILL.md); see the
+one-liner in **Install**.
 
 ## Supported hardware
 
