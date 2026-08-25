@@ -123,6 +123,33 @@ skills directory (Hermes Agent, Claude, etc.) and it knows when and how to
 call `wiz`. The command table above is all an agent really needs if you
 prefer writing your own.
 
+### Or let your agent do the installing
+
+Paste this into your AI agent as-is; it installs the tool, learns the command
+surface, and verifies everything by itself:
+
+```text
+Install and set up the "wiz" CLI from https://github.com/himanusia/wizctl
+so we can control my Philips WiZ lights together:
+
+1. Check whether `wiz` is already on PATH (`command -v wiz`). If yes, go to
+   step 3.
+2. Install it from the repo above:
+   - preferred: pipx install git+https://github.com/himanusia/wizctl.git
+   - fallback (no pipx): download
+     https://raw.githubusercontent.com/himanusia/wizctl/main/wiz.py to
+     ~/.local/bin/wiz, make it executable, and ensure ~/.local/bin is on PATH.
+     (Windows: save wiz.py anywhere and run it as `python wiz.py <command>`.)
+3. Learn the command surface before using it: read the Usage section of
+   https://github.com/himanusia/wizctl#usage and
+   https://raw.githubusercontent.com/himanusia/wizctl/main/skills/wiz/SKILL.md
+   (subcommands, @name/IP targeting suffix, exit codes). If your runtime has
+   a skills directory, save that SKILL.md there so future sessions remember.
+4. Run bare `wiz` to list known lights and show me the output. This only
+   works while this machine is on the same network as the bulbs — if every
+   light reports unreachable, tell me that instead of retrying.
+```
+
 ## Supported hardware
 
 Any WiZ-connected bulb speaking the local API works, including:
