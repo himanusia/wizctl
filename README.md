@@ -26,19 +26,40 @@ $ wizctl night desk
   on the same network.
 - **Multi-light by design.** Discovery finds every bulb on the network; give
   them names, then target all of them or one at a time.
-- **One file, stdlib only.** Copy `wizctl` anywhere a Python 3.6+
+- **Single file, stdlib only.** Copy `wizctl.py` anywhere a Python 3.6+
   interpreter exists.
+
+## Requirements
+
+Any system with **Python 3.6+** (already preinstalled on macOS and most Linux
+distros). On Windows, run commands as `python wizctl.py <command>`. There are
+no third-party packages.
 
 ## Install
 
+**With pipx (recommended):**
+
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<user>/wizctl/main/wizctl \
-  -o ~/.local/bin/wizctl && chmod +x ~/.local/bin/wizctl
+pipx install git+https://github.com/himanusia/wizctl.git
 ```
 
-Or just download/copy the single `wizctl` file onto your `PATH`. There is
-nothing else to install — it is one Python script using only the standard
-library.
+**Or plain curl** (macOS/Linux):
+
+```sh
+mkdir -p ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/himanusia/wizctl/main/wizctl.py \
+  -o ~/.local/bin/wizctl
+chmod +x ~/.local/bin/wizctl
+```
+
+Make sure `~/.local/bin` is on your `PATH`, then try:
+
+```sh
+wizctl find
+```
+
+**Manual:** just download `wizctl.py` and run it directly — `python3 wizctl.py
+find`. Installing is optional; the script has zero dependencies.
 
 ## Usage
 
