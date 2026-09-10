@@ -1,59 +1,158 @@
 ---
-name: wiz
-description: "Control Philips WiZ smart lights on the local network via the wiz CLI. Use when the user asks about their lights - status, on/off, brightness, night/warm/cool presets, scenes - or mentions WiZ."
-version: 1.1.0
+name: wiz-lan-control
+description: "Control Philips WiZ smart lights on the local network via the wiz CLI. Use when the user asks about WiZ lights, status, on/off, brightness, presets, RGB, ambience, scenes, names, IDs, or forgetting a device."
+version: 1.5.0
 category: smart-home
 ---
 
 # WiZ Light Control
 
-Agent skill for the `wiz` CLI (single-file Python tool speaking the WiZ Local
-API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies).
+Agent skill for `wiz` 0.7.0, a single-file Python CLI speaking the WiZ Local
+API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies.
 
 ## Prerequisite check
 
 ```bash
-command -v wiz && wiz || echo "wiz not installed"
+command -v wiz && wiz --version && wiz || echo "wiz not installed"
 ```
 
-If missing, install per https://github.com/himanusia/wizctl — its README is
-written to be followed by agents (preferred: `pipx install
-git+https://github.com/himanusia/wizctl.git`; fallback: download raw `wiz.py`
-to `~/.local/bin/wiz`). If the machine is not on the same network as the
-bulbs, every command reports them unreachable — say so instead of retrying.
+If missing, install per https://github.com/himanusia/wizctl. Preferred:
+`pipx install git+https://github.com/himanusia/wizctl.git`; fallback: download
+raw `wiz.py` to `~/.local/bin/wiz`. If the machine is not on the same network
+as the bulbs, discovery reports no responses; say so instead of retrying.
+
+## Discovery and registry
+
+```bash
+wiz                          # discover, then show tracked light status
+wiz list                     # show cached registry without discovery
+wiz find                     # refresh discovery
+wiz find --include-forgotten # re-adopt devices explicitly forgotten
+wiz update [options]           # update CLI + selected harness skill copies
+```
+
+A discovered device receives a local numeric ID. Its WiZ MAC address is stored
+as the stable UID when firmware reports it, so a DHCP IP change does not create
+a duplicate. The registry and local names live in
+`~/.config/wiz/lights.json`. The original IP/name-only cache is migrated when
+it is next written.
+
+A discovered MAC is authoritative. If a different MAC appears at an old IP, the
+old record is retained as offline and the new device gets a new ID. Never let a
+reused DHCP address inherit another light's name. Offline records must not be
+sent UDP commands.
+
+A bare `wiz` is read-only apart from refreshing this local registry. Control
+commands still target only tracked lights unless given a direct IP.
+
+## Updating
+
+```bash
+wiz update --check                    # read-only check
+wiz update                            # stable main ref; Hermes skill by default
+wiz update --force                    # reapply same/newer versions
+wiz update --ref feat/device-registry # explicit branch/tag
+wiz update --harness codex            # also sync Codex global skill
+wiz update --harness claude           # also sync Claude Code skill
+wiz update --harness opencode         # also sync OpenCode skill
+wiz update --harness all              # sync all supported global targets
+```
+
+The updater fetches `wiz.py`, `pyproject.toml`, and this portable skill over HTTPS,
+checks matching version metadata, compiles the candidate without executing it,
+refuses downgrades, and atomically updates installed `wiz`/`wizctl` scripts plus
+the selected skill targets. The default target is the active Hermes skill. Other
+global targets are Codex `~/.agents/skills/wiz-lan-control/SKILL.md`, Claude Code
+`~/.claude/skills/wiz-lan-control/SKILL.md`, and OpenCode
+`~/.config/opencode/skills/wiz-lan-control/SKILL.md`. It does not update other
+Hermes profiles or project-local skill copies. Reload the relevant harness
+session after a skill update. Use `--check` when no files should change.
 
 ## Commands
 
 ```bash
-wiz                  # status of all known lights (also lists saved names)
-wiz find             # re-discover bulbs on the network
-wiz on | off         # all lights
-wiz <10-100>         # brightness % (implies on)
-wiz night            # preset: 10% @ 2700K
-wiz warm             # 2700K        wiz white   # 4000K
-wiz cool             # 6500K
-wiz temp <2700-6500> # color temperature in Kelvin
-wiz rgb RRGGBB       # color models only (silently ignored by white-only bulbs)
-wiz scene <id>       # numeric scene id (1-32)
-wiz rename <name> [@target]   # name light(s): all, or @name / @ip for one
-wiz forget [target]  # remove light(s) from cache
-wiz add <ip>         # manually add a bulb by IP
+wiz on | off                       # all tracked lights
+wiz <10-100>                       # brightness % (implies on)
+wiz night                         # 10% @ 2700K
+wiz warm                          # 2700K
+wiz white                         # 4000K
+wiz cool                          # 6500K
+wiz temp <2700-6500>               # color temperature in Kelvin
+wiz preset                         # list default + color presets
+wiz preset <name> [@target]        # apply a named preset
+wiz color <name> [@target]         # named color preset alias
+wiz rgb RRGGBB [@target]           # accepts ff8800 or #ff8800
+wiz ambience                       # list ambience/scene IDs and names
+wiz ambience <id|name> [@target]   # apply known ambience
+wiz scene <id|name> [@target]      # ambience alias
+wiz rename <name> [@target]        # assign a local friendly name
+wiz forget [target]                # remove from this CLI's registry
+wiz add <ip>                       # manually register a bulb by IP
 ```
 
-Targeting: a bare command applies to ALL known lights; append a name
-(`wiz on desk`) or IP (`wiz 40 192.168.1.50`) to address one. Exit code is
-non-zero if any target was unreachable.
+## RGB and presets
+
+Use six hexadecimal digits, with or without `#`. Quote a value containing `#`
+when running it in a shell:
+
+```bash
+wiz rgb ff8800 @desk
+wiz rgb '#ff8800' @desk
+wiz preset                         # print all available preset names
+wiz preset orange @desk
+wiz color blue @desk
+```
+
+Default lighting presets are `night`, `warm`, `white`, and `cool`. Built-in
+color presets include `red`, `orange`, `yellow`, `green`, `cyan`, `blue`,
+`purple`, `pink`, and `magenta`. RGB/color commands may be ignored by
+white-only bulbs.
+
+## Ambience / scene catalog
+
+WiZ calls these light modes or effects in different app versions; the local
+protocol sends them as `sceneId`. Do not invent a mapping. Run:
+
+```bash
+wiz ambience
+wiz ambience help
+wiz ambience 1 @desk       # Ocean
+wiz scene 1000 @desk       # Rhythm
+```
+
+The catalog includes standard modes, known custom-mode IDs, and `Rhythm`.
+Firmware and bulb class determine what actually works. Newer firmware may
+expose additional numeric IDs, which the CLI continues to accept.
+
+## Targeting and lifecycle
+
+Targets can be a numeric ID, a friendly name, or an IP. Prefixing with `@` is
+recommended for unambiguous scripts. Names are case-insensitive and support a
+prefix match. An explicit empty target such as `@` is invalid and must fail.
+
+```bash
+wiz rename desk @1
+wiz on @desk
+wiz 40 @desk
+wiz warm 192.0.2.50
+wiz off 2
+wiz forget @desk
+wiz forget @1
+wiz forget                    # forget every tracked light
+wiz find --include-forgotten  # re-adopt forgotten devices
+```
+
+`forget` only removes a device from this CLI and adds it to the ignored list. It
+does not reset the physical bulb or remove it from the official WiZ app. A
+re-adopted device receives a new local numeric ID; old IDs are never reused.
 
 ## Behavior rules
 
-- Known lights and names live in `~/.config/wiz/lights.json`. Run bare `wiz`
-  first to see the setup before asking the user anything.
-- After any set command the CLI prints the resulting state — trust that line;
-  do not issue an extra status query.
-- Unreachable light: likely powered off at the wall switch or off the network.
-  Report it once; never retry-loop against a UDP timeout.
-- Testing etiquette: note the current state first, restore it afterwards.
-- The protocol is LAN-only by design; this tool has no remote/cloud path.
-  Do not claim remote control capability or suggest cloud integrations.
-- White-spectrum models clamp out-of-range temperatures automatically
-  (common range 2700–6500 K); that is expected behavior, not an error.
+- A bare control command applies to all tracked lights; append a target for one.
+- Direct IP control works before a device is registered.
+- After a set command, the CLI reads and prints the resulting state.
+- Unreachable lights are reported once; the process does not retry-loop on UDP
+  timeouts, and its exit code is non-zero if any target failed.
+- The protocol is LAN-only by design. Do not claim remote/cloud control.
+- White-spectrum models may clamp out-of-range temperatures automatically.
+- Testing etiquette: note the current state first and restore it afterwards.
