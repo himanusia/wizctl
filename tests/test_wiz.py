@@ -285,8 +285,8 @@ class WizRegistryTests(unittest.TestCase):
         self.assertIn("Custom Mode 1", output.getvalue())
 
     def test_update_writes_cli_and_hermes_skill(self):
-        remote_source = 'VERSION = "0.7.0"\n'
-        remote_project = '[project]\nversion = "0.7.0"\n'
+        remote_source = 'VERSION = "0.8.0"\n'
+        remote_project = '[project]\nversion = "0.8.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.4.0\n---\nupdated\n"
         with TemporaryDirectory() as tmp:
             cli_path = os.path.join(tmp, "wiz")
@@ -312,9 +312,185 @@ class WizRegistryTests(unittest.TestCase):
             with open(skill_path) as handle:
                 self.assertEqual(handle.read(), remote_skill)
 
+    def test_update_syncs_selected_non_hermes_harnesses(self):
+        remote_source = 'VERSION = "0.8.0"\n'
+        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_skill = "---\nname: wiz-lan-control\nversion: 1.5.0\n---\nportable update\n"
+        with TemporaryDirectory() as tmp:
+            cli_path = os.path.join(tmp, "wiz")
+            codex_path = os.path.join(tmp, "agents", "SKILL.md")
+            claude_path = os.path.join(tmp, "claude", "SKILL.md")
+
+            def fetch(url):
+                if url.endswith("/wiz.py"):
+                    return remote_source
+                if url.endswith("/pyproject.toml"):
+                    return remote_project
+                if url.endswith("/skills/wiz/SKILL.md"):
+                    return remote_skill
+                raise AssertionError(url)
+
+            with patch.object(wiz, "_fetch_url", side_effect=fetch):
+                with patch.object(wiz, "_update_targets", return_value=[cli_path]):
+                    with patch.object(wiz, "_skill_paths", return_value=[codex_path, claude_path]) as paths:
+                        result = wiz.cmd_update([
+                            "--ref", "release-test", "--harness", "codex,claude",
+                        ])
+
+            self.assertEqual(result, 0)
+            paths.assert_called_once_with(("codex", "claude"))
+            with open(cli_path) as handle:
+                self.assertEqual(handle.read(), remote_source)
+            with open(codex_path) as handle:
+                self.assertEqual(handle.read(), remote_skill)
+            with open(claude_path) as handle:
+                self.assertEqual(handle.read(), remote_skill)
+
+    def test_version_comparison_preserves_prerelease_order(self):
+        alpha = wiz._version_tuple("0.7.0-alpha")
+        stable = wiz._version_tuple("0.7.0")
+        alpha_one = wiz._version_tuple("0.7.0-alpha.1")
+        self.assertTrue(alpha is not None and stable is not None and alpha < stable)
+        self.assertTrue(alpha is not None and alpha_one is not None and alpha < alpha_one)
+        self.assertIsNone(wiz._version_tuple("0.7.0-alpha..1"))
+        self.assertIsNone(wiz._version_tuple("0.7.0-01"))
+
+    def test_arbitrary_executable_is_not_recognized_as_wiz(self):
+        with TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wizctl")
+            with open(path, "w") as handle:
+                handle.write("#!/bin/sh\necho unrelated\n")
+            os.chmod(path, 0o755)
+            self.assertFalse(wiz._is_wiz_script(path))
+
+    def test_skill_path_override_cannot_escape_hermes_home(self):
+        with TemporaryDirectory() as tmp:
+            hermes_home = os.path.join(tmp, "hermes")
+            outside = os.path.join(tmp, "outside", "SKILL.md")
+            with patch.dict(os.environ, {
+                "HERMES_HOME": hermes_home,
+                "WIZ_HERMES_SKILL_PATH": outside,
+            }, clear=False):
+                with self.assertRaises(ValueError):
+                    wiz._hermes_skill_path()
+
+    def test_symlinked_update_parent_is_rejected(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlinks unavailable")
+        with TemporaryDirectory() as tmp:
+            real_dir = os.path.join(tmp, "real")
+            link_dir = os.path.join(tmp, "link")
+            os.makedirs(real_dir)
+            try:
+                os.symlink(real_dir, link_dir)
+            except OSError as exc:
+                self.skipTest("symlink creation unavailable: %s" % exc)
+            with self.assertRaises(OSError):
+                wiz._atomic_write_update(os.path.join(link_dir, "SKILL.md"), "content\n")
+
+    def test_transaction_rolls_back_when_later_replace_fails(self):
+        with TemporaryDirectory() as tmp:
+            first = os.path.join(tmp, "first")
+            second = os.path.join(tmp, "second")
+            with open(first, "w") as handle:
+                handle.write("old first")
+            with open(second, "w") as handle:
+                handle.write("old second")
+            real_replace = os.replace
+            calls = {"count": 0}
+
+            def flaky_replace(source, destination):
+                calls["count"] += 1
+                if calls["count"] == 4:
+                    raise OSError("injected replace failure")
+                return real_replace(source, destination)
+
+            with patch.object(wiz.os, "replace", side_effect=flaky_replace):
+                with self.assertRaises(OSError):
+                    wiz._transactional_write_updates([
+                        (first, "new first", False),
+                        (second, "new second", False),
+                    ])
+            with open(first) as handle:
+                self.assertEqual(handle.read(), "old first")
+            with open(second) as handle:
+                self.assertEqual(handle.read(), "old second")
+
+    def test_force_does_not_downgrade_newer_skill(self):
+        remote_source = 'VERSION = "0.8.0"\n'
+        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_skill = "---\nname: wiz-lan-control\nversion: 1.0.0\n---\nold\n"
+        with TemporaryDirectory() as tmp:
+            cli_path = os.path.join(tmp, "wiz")
+            skill_path = os.path.join(tmp, "SKILL.md")
+            with open(skill_path, "w") as handle:
+                handle.write("---\nversion: 1.5.0\n---\nnew\n")
+
+            def fetch(url):
+                if url.endswith("/wiz.py"):
+                    return remote_source
+                if url.endswith("/pyproject.toml"):
+                    return remote_project
+                return remote_skill
+
+            with patch.object(wiz, "_fetch_url", side_effect=fetch):
+                with patch.object(wiz, "_update_targets", return_value=[cli_path]):
+                    with patch.object(wiz, "_skill_paths", return_value=[skill_path]):
+                        result = wiz.cmd_update(["--force", "--ref", "release-test"])
+            self.assertEqual(result, 0)
+            with open(skill_path) as handle:
+                self.assertIn("version: 1.5.0", handle.read())
+
+    def test_newer_legacy_source_without_version_is_rejected(self):
+        remote_source = "print('legacy wiz source')\n"
+        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_skill = "---\nname: wiz-lan-control\nversion: 1.5.0\n---\n"
+        responses = {
+            "wiz.py": remote_source,
+            "pyproject.toml": remote_project,
+            "skills/wiz/SKILL.md": remote_skill,
+        }
+
+        def fetch(url):
+            return next(value for suffix, value in responses.items() if url.endswith("/" + suffix))
+
+        with patch.object(wiz, "_fetch_url", side_effect=fetch):
+            with patch.object(wiz, "_update_targets") as targets:
+                result = wiz.cmd_update(["--ref", "release-test"])
+        self.assertNotEqual(result, 0)
+        targets.assert_not_called()
+
+    def test_hermes_profile_fallback_requires_explicit_home(self):
+        with TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "active_profile"), "w") as handle:
+                handle.write("coder\n")
+            with patch.object(wiz, "_default_hermes_home", return_value=tmp):
+                with patch.dict(os.environ, {"HERMES_HOME": ""}, clear=False):
+                    with self.assertRaises(ValueError):
+                        wiz._hermes_home()
+
+    def test_legacy_hermes_skill_path_is_not_left_stale(self):
+        with TemporaryDirectory() as tmp:
+            legacy = os.path.join(tmp, "skills", "smart-home", "wiz", "SKILL.md")
+            os.makedirs(os.path.dirname(legacy))
+            with open(legacy, "w") as handle:
+                handle.write("---\nname: wiz\nversion: 1.3.0\n---\nold\n")
+            with patch.dict(os.environ, {
+                "HERMES_HOME": tmp,
+                "WIZ_HERMES_SKILL_PATH": "",
+            }, clear=False):
+                self.assertEqual(wiz._hermes_skill_path(), legacy)
+                self.assertIn(legacy, wiz._skill_paths(("hermes",)))
+
+    def test_harness_parser_accepts_all_and_rejects_unknown(self):
+        self.assertEqual(wiz._parse_harnesses("all"), wiz.UPDATE_HARNESSES)
+        self.assertEqual(wiz._parse_harnesses("codex,claude,codex"), ("codex", "claude"))
+        with self.assertRaises(ValueError):
+            wiz._parse_harnesses("codex,unknown")
+
     def test_update_check_does_not_write_targets(self):
-        remote_source = 'VERSION = "0.7.0"\n'
-        remote_project = '[project]\nversion = "0.7.0"\n'
+        remote_source = 'VERSION = "0.8.0"\n'
+        remote_project = '[project]\nversion = "0.8.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.4.0\n---\n"
         responses = {
             "wiz.py": remote_source,
@@ -388,7 +564,7 @@ class WizRegistryTests(unittest.TestCase):
                 result = wiz.main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(output.getvalue().strip(), "wiz 0.6.0")
+        self.assertEqual(output.getvalue().strip(), "wiz 0.7.0")
 
 
 if __name__ == "__main__":

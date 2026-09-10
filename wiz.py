@@ -12,7 +12,7 @@ Usage:
   wiz find                     re-discover all WiZ lights on the network
   wiz find --include-forgotten re-adopt lights previously forgotten
   wiz --version               print the CLI version
-  wiz update [options]        update CLI and the active Hermes WiZ skill
+  wiz update [options]        update CLI and selected agent skill copies
   wiz on | off                 turn every tracked light on / off
   wiz <10-100>                set brightness percent (turns lights on)
   wiz night | warm | white | cool
@@ -42,9 +42,11 @@ forgetting a light never resets the physical bulb or removes it from WiZ's app.
 
 Protocol: WiZ Local API - JSON over UDP port 38899 (same LAN as the bulbs).
 """
+import ast
 import json
 import os
 import re
+import shutil
 import socket
 import stat
 import string
@@ -55,7 +57,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 STATE_VERSION = 2
 PORT = 38899
 CONF_DIR = os.path.expanduser("~/.config/wiz")
@@ -63,6 +65,7 @@ CACHE_FILE = os.path.join(CONF_DIR, "lights.json")
 REPOSITORY_URL = "https://github.com/himanusia/wizctl"
 DEFAULT_UPDATE_REF = "main"
 MAX_UPDATE_BYTES = 512 * 1024
+UPDATE_HARNESSES = ("hermes", "codex", "claude", "opencode")
 DISCOVERY_WAIT = 2.0
 CMD_TIMEOUT = 1.5
 
@@ -472,10 +475,26 @@ def discover():
 # ---------- self-update ----------
 
 def _version_tuple(value):
-    match = re.match(r"^\s*(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?\s*$", str(value))
+    match = re.match(
+        r"^\s*(\d+)\.(\d+)\.(\d+)"
+        r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?\s*$",
+        str(value),
+    )
     if not match:
         return None
-    return tuple(int(match.group(index)) for index in (1, 2, 3))
+    prerelease = match.group(4)
+    if prerelease is None:
+        # A stable release sorts after every prerelease of the same version.
+        return (int(match.group(1)), int(match.group(2)), int(match.group(3)), 1, ())
+    identifiers = []
+    for identifier in prerelease.split("."):
+        if not identifier or (identifier.isdigit() and len(identifier) > 1 and identifier.startswith("0")):
+            return None
+        if identifier.isdigit():
+            identifiers.append((0, int(identifier)))
+        else:
+            identifiers.append((1, identifier))
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)), 0, tuple(identifiers))
 
 
 def _extract_project_version(text):
@@ -484,8 +503,24 @@ def _extract_project_version(text):
 
 
 def _extract_source_version(text):
-    match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", text, re.MULTILINE)
-    return match.group(1) if match else None
+    try:
+        tree = ast.parse(text, filename="wiz.py")
+    except SyntaxError:
+        return None
+    versions = []
+    for node in tree.body:
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        if any(isinstance(target, ast.Name) and target.id == "VERSION" for target in targets):
+            value = node.value
+            if isinstance(value, ast.Str):
+                versions.append(value.s)
+            elif hasattr(ast, "Constant") and isinstance(value, ast.Constant) and isinstance(value.value, str):
+                versions.append(value.value)
+    return versions[0] if len(versions) == 1 else None
 
 
 def _extract_skill_version(text):
@@ -514,62 +549,254 @@ def _fetch_url(url):
     return data.decode("utf-8-sig")
 
 
+def _is_wiz_script(path):
+    if os.path.islink(path) or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, encoding="utf-8-sig") as handle:
+            text = handle.read(MAX_UPDATE_BYTES + 1)
+    except (OSError, UnicodeError):
+        return False
+    if len(text.encode("utf-8")) > MAX_UPDATE_BYTES:
+        return False
+    return (
+        _extract_source_version(text) is not None
+        and "def main(" in text
+        and 'REPOSITORY_URL = "https://github.com/himanusia/wizctl"' in text
+    )
+
+
 def _update_targets():
     candidates = [
-        os.path.abspath(sys.argv[0]),
         os.path.expanduser("~/.local/bin/wiz"),
         os.path.expanduser("~/.local/bin/wizctl"),
     ]
+    argv_path = os.path.abspath(os.path.expanduser(sys.argv[0]))
+    if os.path.basename(argv_path) in ("wiz", "wizctl"):
+        candidates.insert(0, argv_path)
     targets = []
     for candidate in candidates:
-        if os.path.isfile(candidate) and candidate not in targets:
+        candidate = os.path.abspath(candidate)
+        if candidate not in targets and _is_wiz_script(candidate):
             targets.append(candidate)
     return targets
 
 
+def _default_hermes_home():
+    if sys.platform == "win32":
+        local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+        base = local_appdata or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+        return os.path.abspath(os.path.join(base, "hermes"))
+    return os.path.abspath(os.path.expanduser("~/.hermes"))
+
+
+def _hermes_home():
+    configured = os.environ.get("HERMES_HOME", "").strip()
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    default_home = _default_hermes_home()
+    active_profile_path = os.path.join(default_home, "active_profile")
+    try:
+        with open(active_profile_path, encoding="utf-8") as handle:
+            active_profile = handle.read().strip()
+    except (OSError, UnicodeError):
+        active_profile = ""
+    if active_profile and active_profile != "default":
+        raise ValueError(
+            "HERMES_HOME is unset while Hermes profile '%s' is active; "
+            "set HERMES_HOME before updating the skill" % active_profile
+        )
+    return default_home
+
+
+def _path_is_within(path, root):
+    try:
+        return os.path.commonpath([os.path.abspath(path), os.path.abspath(root)]) == os.path.abspath(root)
+    except ValueError:
+        return False
+
+
+def _hermes_skill_legacy_paths(hermes_home):
+    skills_root = os.path.join(hermes_home, "skills")
+    return [
+        os.path.join(skills_root, "smart-home", "wiz", "SKILL.md"),
+        os.path.join(skills_root, "wiz", "SKILL.md"),
+    ]
+
+
 def _hermes_skill_path():
-    override = os.environ.get("WIZ_HERMES_SKILL_PATH")
+    hermes_home = _hermes_home()
+    override = os.environ.get("WIZ_HERMES_SKILL_PATH", "").strip()
     if override:
-        return os.path.abspath(os.path.expanduser(override))
-    hermes_home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
-    return os.path.join(
-        os.path.abspath(os.path.expanduser(hermes_home)),
-        "skills", "smart-home", "wiz-lan-control", "SKILL.md",
+        path = os.path.abspath(os.path.expanduser(override))
+        if not _path_is_within(path, os.path.join(hermes_home, "skills")):
+            raise ValueError("WIZ_HERMES_SKILL_PATH must stay under HERMES_HOME/skills")
+        return path
+    desired = os.path.join(
+        hermes_home, "skills", "smart-home", "wiz-lan-control", "SKILL.md",
     )
+    if os.path.lexists(desired):
+        return desired
+    legacy = [path for path in _hermes_skill_legacy_paths(hermes_home) if os.path.lexists(path)]
+    return legacy[0] if legacy else desired
+
+
+def _skill_paths(harnesses):
+    home = os.path.expanduser("~")
+    paths = []
+    for harness in harnesses:
+        if harness == "hermes":
+            path = _hermes_skill_path()
+            if path not in paths:
+                paths.append(path)
+            if not os.environ.get("WIZ_HERMES_SKILL_PATH", "").strip():
+                for legacy_path in _hermes_skill_legacy_paths(_hermes_home()):
+                    if os.path.lexists(legacy_path) and legacy_path not in paths:
+                        paths.append(legacy_path)
+            continue
+        if harness == "codex":
+            path = os.path.join(home, ".agents", "skills", "wiz-lan-control", "SKILL.md")
+        elif harness == "claude":
+            path = os.path.join(home, ".claude", "skills", "wiz-lan-control", "SKILL.md")
+        elif harness == "opencode":
+            path = os.path.join(home, ".config", "opencode", "skills", "wiz-lan-control", "SKILL.md")
+        else:
+            raise ValueError("unknown harness '%s'" % harness)
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _parse_harnesses(value):
+    names = [part.strip().lower() for part in str(value).split(",")]
+    if not names or any(not name for name in names):
+        raise ValueError("harness list cannot be empty")
+    if "all" in names:
+        if len(names) != 1:
+            raise ValueError("all cannot be combined with another harness")
+        return UPDATE_HARNESSES
+    invalid = [name for name in names if name not in UPDATE_HARNESSES]
+    if invalid:
+        raise ValueError("unknown harness '%s'" % invalid[0])
+    return tuple(dict.fromkeys(names))
 
 
 def _read_text_or_empty(path):
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8-sig") as handle:
             return handle.read()
-    except OSError:
+    except (OSError, UnicodeError):
         return ""
 
 
-def _atomic_write_update(path, text, executable=False):
+def _safe_update_path(path):
     path = os.path.abspath(os.path.expanduser(path))
-    directory = os.path.dirname(path)
-    os.makedirs(directory, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".wiz-update-", dir=directory)
+    real_path = os.path.realpath(path)
+    if os.path.normcase(real_path) != os.path.normcase(path):
+        # macOS exposes /var and /tmp as stable system aliases. Allow only
+        # those exact prefix translations; any additional link below them is
+        # still rejected.
+        allowed_system_alias = False
+        if sys.platform == "darwin":
+            for logical, physical in (("/var", "/private/var"), ("/tmp", "/private/tmp")):
+                if path == logical or path.startswith(logical + os.sep):
+                    expected = physical + path[len(logical):]
+                    allowed_system_alias = os.path.normcase(real_path) == os.path.normcase(expected)
+                    if allowed_system_alias:
+                        break
+        if not allowed_system_alias:
+            raise OSError("refusing to update through a symlink or junction: %s" % path)
+    return path
+
+
+def _transactional_write_updates(updates):
+    entries = []
+    seen = set()
     try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(text)
-        if os.path.exists(path):
-            mode = stat.S_IMODE(os.stat(path).st_mode)
-        else:
-            mode = 0o755 if executable else 0o644
-        os.chmod(temporary, mode)
-        os.replace(temporary, path)
-    except Exception:
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
+        for raw_path, text, executable in updates:
+            path = _safe_update_path(raw_path)
+            if path in seen:
+                raise OSError("duplicate update target: %s" % path)
+            seen.add(path)
+            directory = os.path.dirname(path)
+            os.makedirs(directory, exist_ok=True)
+            # Re-check after creating missing parents to close the common
+            # symlink-parent path before staging or replacing anything.
+            path = _safe_update_path(path)
+            if os.path.lexists(path) and not os.path.isfile(path):
+                raise OSError("update target is not a regular file: %s" % path)
+            mode = stat.S_IMODE(os.stat(path).st_mode) if os.path.exists(path) else (
+                0o755 if executable else 0o644
+            )
+            entry = {
+                "path": path,
+                "stage": None,
+                "backup": None,
+                "mode": mode,
+                "existed": os.path.exists(path),
+                "moved": False,
+                "committed": False,
+            }
+            entries.append(entry)
+
+            fd, stage = tempfile.mkstemp(prefix=".wiz-update-", dir=directory)
+            entry["stage"] = stage
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(stage, mode)
+
+            if entry["existed"]:
+                fd, backup = tempfile.mkstemp(prefix=".wiz-backup-", dir=directory)
+                entry["backup"] = backup
+                with os.fdopen(fd, "wb") as destination:
+                    with open(path, "rb") as source:
+                        shutil.copyfileobj(source, destination)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+                os.chmod(backup, mode)
+
+        for entry in entries:
+            _safe_update_path(entry["path"])
+            if entry["backup"]:
+                os.replace(entry["path"], entry["backup"])
+                entry["moved"] = True
+            os.replace(entry["stage"], entry["path"])
+            entry["committed"] = True
+    except Exception as exc:
+        rollback_errors = []
+        for entry in reversed(entries):
+            try:
+                if entry["committed"] and os.path.lexists(entry["path"]):
+                    os.unlink(entry["path"])
+                if entry["moved"] and entry["backup"] and os.path.lexists(entry["backup"]):
+                    os.replace(entry["backup"], entry["path"])
+            except OSError as rollback_error:
+                rollback_errors.append(str(rollback_error))
+        if rollback_errors:
+            raise OSError(
+                "update failed (%s); rollback also failed: %s" %
+                (exc, "; ".join(rollback_errors))
+            )
         raise
+    finally:
+        for entry in entries:
+            for temporary in (entry["stage"], entry["backup"]):
+                if temporary and os.path.lexists(temporary):
+                    try:
+                        os.unlink(temporary)
+                    except OSError:
+                        pass
+
+
+def _atomic_write_update(path, text, executable=False):
+    _transactional_write_updates([(path, text, executable)])
 
 
 def _parse_update_args(args):
     ref = DEFAULT_UPDATE_REF
+    harness_value = "hermes"
     check = False
     force = False
     index = 0
@@ -590,27 +817,45 @@ def _parse_update_args(args):
             ref = args[index]
         elif arg.startswith("--ref="):
             ref = arg.split("=", 1)[1]
+        elif arg == "--harness":
+            index += 1
+            if index >= len(args):
+                raise ValueError("--harness needs a harness name or all")
+            harness_value = args[index]
+        elif arg.startswith("--harness="):
+            harness_value = arg.split("=", 1)[1]
         else:
             raise ValueError("unknown update option '%s'" % arg)
         index += 1
-    return {"ref": _validate_update_ref(ref), "check": check, "force": force, "help": False}
+    return {
+        "ref": _validate_update_ref(ref),
+        "harnesses": _parse_harnesses(harness_value),
+        "check": check,
+        "force": force,
+        "help": False,
+    }
 
 
 def cmd_update(args):
     try:
         options = _parse_update_args(args)
         if options.get("help"):
-            print("usage: wiz update [--check] [--force] [--ref REF]")
-            print("updates the CLI and the active Hermes WiZ skill from GitHub")
+            print("usage: wiz update [--check] [--force] [--ref REF] [--harness LIST]")
+            print("updates the CLI and selected harness skill copies from GitHub")
+            print("harnesses: hermes (default), codex, claude, opencode, or all")
             return 0
         ref = options["ref"]
         remote_source = _fetch_url(_update_url(ref, "wiz.py"))
         remote_project = _fetch_url(_update_url(ref, "pyproject.toml"))
         remote_skill = _fetch_url(_update_url(ref, "skills/wiz/SKILL.md"))
         project_version = _extract_project_version(remote_project)
-        source_version = _extract_source_version(remote_source) or project_version
+        source_version = _extract_source_version(remote_source)
+        source_version_missing = source_version is None
+        # A legacy source may still be classified as an older downgrade, but
+        # it is never installable without its own VERSION constant.
+        source_version_for_compare = source_version or project_version
         skill_version = _extract_skill_version(remote_skill)
-        source_tuple = _version_tuple(source_version)
+        source_tuple = _version_tuple(source_version_for_compare)
         project_tuple = _version_tuple(project_version)
         skill_tuple = _version_tuple(skill_version)
         current_tuple = _version_tuple(VERSION)
@@ -618,23 +863,32 @@ def cmd_update(args):
             raise ValueError("remote update has invalid version metadata")
         if source_tuple != project_tuple:
             raise ValueError("remote CLI and package versions do not match")
-        compile(remote_source, "wiz.py", "exec")
         if source_tuple < current_tuple:
             print("wiz: remote %s is older than local %s; refusing downgrade" % (project_version, VERSION))
             return 0
+        if source_version_missing:
+            raise ValueError("remote wiz.py is missing VERSION metadata")
+        compile(remote_source, "wiz.py", "exec")
 
-        skill_path = None
-        current_skill_version = None
-        current_skill_tuple = (0, 0, 0)
-        if source_tuple >= current_tuple:
-            skill_path = _hermes_skill_path()
+        skill_paths = _skill_paths(options["harnesses"])
+        skill_states = []
+        for skill_path in skill_paths:
             current_skill_version = _extract_skill_version(_read_text_or_empty(skill_path))
-            current_skill_tuple = _version_tuple(current_skill_version) or (0, 0, 0)
+            current_skill_tuple = _version_tuple(current_skill_version) or (0, 0, 0, 0, ())
+            skill_states.append((skill_path, current_skill_version, current_skill_tuple))
+        update_skill_paths = [
+            skill_path for skill_path, _version, current_skill_tuple in skill_states
+            if skill_tuple >= current_skill_tuple
+            and (options["force"] or skill_tuple > current_skill_tuple)
+        ]
         update_cli = options["force"] or source_tuple > current_tuple
-        update_skill = options["force"] or skill_tuple > current_skill_tuple
+        update_skill = bool(update_skill_paths)
         print("local CLI %s -> remote CLI %s (%s)" % (VERSION, project_version, ref))
-        print("local skill %s -> remote skill %s" % (
-            current_skill_version if skill_path else "unknown", skill_version))
+        print("remote skill %s; targets: %s" % (
+            skill_version, ", ".join(path for path, _version, _tuple in skill_states)))
+        for skill_path, current_skill_version, _current_skill_tuple in skill_states:
+            print("local skill %s -> remote skill %s (%s)" % (
+                current_skill_version or "missing", skill_version, skill_path))
         if options["check"]:
             if not update_cli and not update_skill:
                 print("already up to date")
@@ -645,19 +899,22 @@ def cmd_update(args):
             print("already up to date")
             return 0
 
+        updates = []
+        targets = []
         if update_cli:
             targets = _update_targets()
             if not targets:
                 raise OSError("no installed wiz executable found to update")
-            for target in targets:
-                _atomic_write_update(target, remote_source, executable=True)
+            updates.extend((target, remote_source, True) for target in targets)
+        updates.extend((skill_path, remote_skill, False) for skill_path in update_skill_paths)
+        _transactional_write_updates(updates)
+        if update_cli:
             print("updated CLI: %s" % ", ".join(targets))
         if update_skill:
-            _atomic_write_update(skill_path, remote_skill)
-            print("updated Hermes skill: %s" % skill_path)
-        print("start a new Hermes session or run /reload-skills to load the skill update")
+            print("updated skills: %s" % ", ".join(update_skill_paths))
+        print("reload the relevant harness session to load skill updates")
         return 0
-    except (HTTPError, URLError, OSError, UnicodeError, ValueError) as exc:
+    except (HTTPError, URLError, OSError, UnicodeError, SyntaxError, ValueError) as exc:
         print("wiz: update failed: %s" % exc)
         return 1
 

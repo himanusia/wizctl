@@ -1,13 +1,13 @@
 ---
 name: wiz-lan-control
 description: "Control Philips WiZ smart lights on the local network via the wiz CLI. Use when the user asks about WiZ lights, status, on/off, brightness, presets, RGB, ambience, scenes, names, IDs, or forgetting a device."
-version: 1.4.0
+version: 1.5.0
 category: smart-home
 ---
 
 # WiZ Light Control
 
-Agent skill for `wiz` 0.6.0, a single-file Python CLI speaking the WiZ Local
+Agent skill for `wiz` 0.7.0, a single-file Python CLI speaking the WiZ Local
 API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies.
 
 ## Prerequisite check
@@ -28,7 +28,7 @@ wiz                          # discover, then show tracked light status
 wiz list                     # show cached registry without discovery
 wiz find                     # refresh discovery
 wiz find --include-forgotten # re-adopt devices explicitly forgotten
-wiz update [options]           # update CLI + active Hermes skill
+wiz update [options]           # update CLI + selected harness skill copies
 ```
 
 A discovered device receives a local numeric ID. Its WiZ MAC address is stored
@@ -49,17 +49,24 @@ commands still target only tracked lights unless given a direct IP.
 
 ```bash
 wiz update --check                    # read-only check
-wiz update                            # stable main ref
+wiz update                            # stable main ref; Hermes skill by default
 wiz update --force                    # reapply same/newer versions
 wiz update --ref feat/device-registry # explicit branch/tag
+wiz update --harness codex            # also sync Codex global skill
+wiz update --harness claude           # also sync Claude Code skill
+wiz update --harness opencode         # also sync OpenCode skill
+wiz update --harness all              # sync all supported global targets
 ```
 
-The updater fetches `wiz.py`, `pyproject.toml`, and this skill over HTTPS,
+The updater fetches `wiz.py`, `pyproject.toml`, and this portable skill over HTTPS,
 checks matching version metadata, compiles the candidate without executing it,
-refuses downgrades, and atomically updates installed `wiz`/`wizctl` scripts
-plus the active Hermes skill under `HERMES_HOME`. It does not update other
-Hermes profiles. Start a new session or run `/reload-skills` after a skill
-update. Use `--check` when no files should change.
+refuses downgrades, and atomically updates installed `wiz`/`wizctl` scripts plus
+the selected skill targets. The default target is the active Hermes skill. Other
+global targets are Codex `~/.agents/skills/wiz-lan-control/SKILL.md`, Claude Code
+`~/.claude/skills/wiz-lan-control/SKILL.md`, and OpenCode
+`~/.config/opencode/skills/wiz-lan-control/SKILL.md`. It does not update other
+Hermes profiles or project-local skill copies. Reload the relevant harness
+session after a skill update. Use `--check` when no files should change.
 
 ## Commands
 

@@ -2,15 +2,17 @@
 
 ![Python](https://img.shields.io/badge/python-3.7%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
-![Version](https://img.shields.io/badge/version-0.6.0-blue)
+![Version](https://img.shields.io/badge/version-0.7.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Control Philips WiZ smart lights from your terminal: no cloud, no bridge, and
 no third-party dependencies. The command is named `wiz`.
 
-## What changed in 0.6.0
+## What changed in 0.7.0
 
-- `wiz update` can update the CLI and the active Hermes WiZ skill together.
+- `wiz update` can update the CLI and selected agent skill copies together.
+- The default target remains the active Hermes skill; use `--harness` for Codex,
+  Claude Code, OpenCode, or all supported harnesses.
 - Updates are fetched over HTTPS from a pinned repository/ref and validated
   before installation.
 - `--check` performs a read-only update check; `--force` reapplies the same
@@ -68,18 +70,29 @@ Make sure `~/.local/bin` is on your `PATH`.
 ### Updating
 
 ```sh
-wiz update --check                 # read-only check
-wiz update                         # update from the stable main ref
-wiz update --force                 # reapply the same/newer version
-wiz update --ref feat/device-registry  # use an explicit branch or tag
+wiz update --check                         # read-only check
+wiz update                                  # CLI + active Hermes skill
+wiz update --force                          # reapply the same/newer version
+wiz update --ref feat/device-registry       # use an explicit branch or tag
+wiz update --harness codex                  # also/update Codex global skill
+wiz update --harness claude                 # also/update Claude Code skill
+wiz update --harness opencode               # also/update OpenCode skill
+wiz update --harness all                    # sync all supported skill targets
 ```
 
-`wiz update` downloads `wiz.py`, `pyproject.toml`, and the WiZ skill over
+`wiz update` downloads `wiz.py`, `pyproject.toml`, and the portable WiZ skill over
 HTTPS, checks that the source/package versions match, compiles the candidate
 without executing it, refuses downgrades, then atomically updates the installed
-`wiz`/`wizctl` scripts and the active Hermes skill under `HERMES_HOME`. It does
-not update other Hermes profiles. Start a new Hermes session or run
-`/reload-skills` after a skill update. Use `--check` to avoid writes.
+`wiz`/`wizctl` scripts and the selected skill targets. The default skill target
+is the active Hermes skill under `HERMES_HOME`; the other global targets are:
+
+- Codex: `~/.agents/skills/wiz-lan-control/SKILL.md`
+- Claude Code: `~/.claude/skills/wiz-lan-control/SKILL.md`
+- OpenCode: `~/.config/opencode/skills/wiz-lan-control/SKILL.md`
+
+Use `--harness all` to update all four global targets explicitly. The updater
+does not overwrite project-local skill copies or other Hermes profiles. Reload
+the relevant harness session after a skill update. Use `--check` to avoid writes.
 
 At the moment the new updater lives on the feature branch above; `main` still
 contains the older release until the branch is merged.
@@ -96,7 +109,7 @@ wiz list                     show cached status without discovery
 wiz find                     discover all WiZ lights
 wiz find --include-forgotten re-adopt forgotten lights
 wiz --version               print the CLI version
-wiz update [options]        update CLI + active Hermes WiZ skill
+wiz update [options]        update CLI + selected agent skill copies
 wiz on | off                 turn every tracked light on / off
 wiz <10-100>                brightness percent (turns lights on)
 wiz night | warm | white | cool
@@ -183,7 +196,7 @@ creates a new local numeric ID; its old ID is not reused.
 
 ## State and migration
 
-The registry is stored at `~/.config/wiz/lights.json`. Version 0.6.0 migrates
+The registry is stored at `~/.config/wiz/lights.json`. Version 0.7.0 migrates
 the earlier format containing only `ip` and `name` entries the first time it
 writes the file. The v2 shape contains a numeric `id`, a stable WiZ `uid` when
 the device reports its MAC, the current `ip`, and the local `name`.
