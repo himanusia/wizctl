@@ -1,13 +1,13 @@
 ---
-name: wiz
+name: wiz-lan-control
 description: "Control Philips WiZ smart lights on the local network via the wiz CLI. Use when the user asks about WiZ lights, status, on/off, brightness, presets, RGB, ambience, scenes, names, IDs, or forgetting a device."
-version: 1.3.0
+version: 1.4.0
 category: smart-home
 ---
 
 # WiZ Light Control
 
-Agent skill for `wiz` 0.5.0, a single-file Python CLI speaking the WiZ Local
+Agent skill for `wiz` 0.6.0, a single-file Python CLI speaking the WiZ Local
 API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies.
 
 ## Prerequisite check
@@ -28,6 +28,7 @@ wiz                          # discover, then show tracked light status
 wiz list                     # show cached registry without discovery
 wiz find                     # refresh discovery
 wiz find --include-forgotten # re-adopt devices explicitly forgotten
+wiz update [options]           # update CLI + active Hermes skill
 ```
 
 A discovered device receives a local numeric ID. Its WiZ MAC address is stored
@@ -43,6 +44,22 @@ sent UDP commands.
 
 A bare `wiz` is read-only apart from refreshing this local registry. Control
 commands still target only tracked lights unless given a direct IP.
+
+## Updating
+
+```bash
+wiz update --check                    # read-only check
+wiz update                            # stable main ref
+wiz update --force                    # reapply same/newer versions
+wiz update --ref feat/device-registry # explicit branch/tag
+```
+
+The updater fetches `wiz.py`, `pyproject.toml`, and this skill over HTTPS,
+checks matching version metadata, compiles the candidate without executing it,
+refuses downgrades, and atomically updates installed `wiz`/`wizctl` scripts
+plus the active Hermes skill under `HERMES_HOME`. It does not update other
+Hermes profiles. Start a new session or run `/reload-skills` after a skill
+update. Use `--check` when no files should change.
 
 ## Commands
 

@@ -12,6 +12,7 @@ Usage:
   wiz find                     re-discover all WiZ lights on the network
   wiz find --include-forgotten re-adopt lights previously forgotten
   wiz --version               print the CLI version
+  wiz update [options]        update CLI and the active Hermes WiZ skill
   wiz on | off                 turn every tracked light on / off
   wiz <10-100>                set brightness percent (turns lights on)
   wiz night | warm | white | cool
@@ -43,16 +44,25 @@ Protocol: WiZ Local API - JSON over UDP port 38899 (same LAN as the bulbs).
 """
 import json
 import os
+import re
 import socket
+import stat
 import string
 import sys
+import tempfile
 import time
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 STATE_VERSION = 2
 PORT = 38899
 CONF_DIR = os.path.expanduser("~/.config/wiz")
 CACHE_FILE = os.path.join(CONF_DIR, "lights.json")
+REPOSITORY_URL = "https://github.com/himanusia/wizctl"
+DEFAULT_UPDATE_REF = "main"
+MAX_UPDATE_BYTES = 512 * 1024
 DISCOVERY_WAIT = 2.0
 CMD_TIMEOUT = 1.5
 
@@ -459,6 +469,199 @@ def discover():
     return [found[ip] for ip in sorted(found)]
 
 
+# ---------- self-update ----------
+
+def _version_tuple(value):
+    match = re.match(r"^\s*(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?\s*$", str(value))
+    if not match:
+        return None
+    return tuple(int(match.group(index)) for index in (1, 2, 3))
+
+
+def _extract_project_version(text):
+    match = re.search(r"^version\s*=\s*[\"']([^\"']+)[\"']", text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _extract_source_version(text):
+    match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _extract_skill_version(text):
+    match = re.search(r"^version:\s*([^\s]+)", text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _validate_update_ref(ref):
+    if not isinstance(ref, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$", ref):
+        raise ValueError("invalid update ref")
+    if ".." in ref or "@{" in ref or ref.endswith((".", "/")):
+        raise ValueError("invalid update ref")
+    return ref
+
+
+def _update_url(ref, path):
+    return "%s/raw/%s/%s" % (REPOSITORY_URL, quote(ref, safe="/"), quote(path, safe="/"))
+
+
+def _fetch_url(url):
+    request = Request(url, headers={"User-Agent": "wizctl/%s" % VERSION})
+    with urlopen(request, timeout=20) as response:
+        data = response.read(MAX_UPDATE_BYTES + 1)
+    if len(data) > MAX_UPDATE_BYTES:
+        raise ValueError("remote update file is too large")
+    return data.decode("utf-8-sig")
+
+
+def _update_targets():
+    candidates = [
+        os.path.abspath(sys.argv[0]),
+        os.path.expanduser("~/.local/bin/wiz"),
+        os.path.expanduser("~/.local/bin/wizctl"),
+    ]
+    targets = []
+    for candidate in candidates:
+        if os.path.isfile(candidate) and candidate not in targets:
+            targets.append(candidate)
+    return targets
+
+
+def _hermes_skill_path():
+    override = os.environ.get("WIZ_HERMES_SKILL_PATH")
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    hermes_home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+    return os.path.join(
+        os.path.abspath(os.path.expanduser(hermes_home)),
+        "skills", "smart-home", "wiz-lan-control", "SKILL.md",
+    )
+
+
+def _read_text_or_empty(path):
+    try:
+        with open(path) as handle:
+            return handle.read()
+    except OSError:
+        return ""
+
+
+def _atomic_write_update(path, text, executable=False):
+    path = os.path.abspath(os.path.expanduser(path))
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".wiz-update-", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+        if os.path.exists(path):
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+        else:
+            mode = 0o755 if executable else 0o644
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _parse_update_args(args):
+    ref = DEFAULT_UPDATE_REF
+    check = False
+    force = False
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in ("--help", "-h"):
+            if len(args) != 1:
+                raise ValueError("--help cannot be combined with other update options")
+            return {"help": True}
+        if arg == "--check":
+            check = True
+        elif arg == "--force":
+            force = True
+        elif arg == "--ref":
+            index += 1
+            if index >= len(args):
+                raise ValueError("--ref needs a branch or tag")
+            ref = args[index]
+        elif arg.startswith("--ref="):
+            ref = arg.split("=", 1)[1]
+        else:
+            raise ValueError("unknown update option '%s'" % arg)
+        index += 1
+    return {"ref": _validate_update_ref(ref), "check": check, "force": force, "help": False}
+
+
+def cmd_update(args):
+    try:
+        options = _parse_update_args(args)
+        if options.get("help"):
+            print("usage: wiz update [--check] [--force] [--ref REF]")
+            print("updates the CLI and the active Hermes WiZ skill from GitHub")
+            return 0
+        ref = options["ref"]
+        remote_source = _fetch_url(_update_url(ref, "wiz.py"))
+        remote_project = _fetch_url(_update_url(ref, "pyproject.toml"))
+        remote_skill = _fetch_url(_update_url(ref, "skills/wiz/SKILL.md"))
+        project_version = _extract_project_version(remote_project)
+        source_version = _extract_source_version(remote_source) or project_version
+        skill_version = _extract_skill_version(remote_skill)
+        source_tuple = _version_tuple(source_version)
+        project_tuple = _version_tuple(project_version)
+        skill_tuple = _version_tuple(skill_version)
+        current_tuple = _version_tuple(VERSION)
+        if not source_tuple or not project_tuple or not skill_tuple or not current_tuple:
+            raise ValueError("remote update has invalid version metadata")
+        if source_tuple != project_tuple:
+            raise ValueError("remote CLI and package versions do not match")
+        compile(remote_source, "wiz.py", "exec")
+        if source_tuple < current_tuple:
+            print("wiz: remote %s is older than local %s; refusing downgrade" % (project_version, VERSION))
+            return 0
+
+        skill_path = None
+        current_skill_version = None
+        current_skill_tuple = (0, 0, 0)
+        if source_tuple >= current_tuple:
+            skill_path = _hermes_skill_path()
+            current_skill_version = _extract_skill_version(_read_text_or_empty(skill_path))
+            current_skill_tuple = _version_tuple(current_skill_version) or (0, 0, 0)
+        update_cli = options["force"] or source_tuple > current_tuple
+        update_skill = options["force"] or skill_tuple > current_skill_tuple
+        print("local CLI %s -> remote CLI %s (%s)" % (VERSION, project_version, ref))
+        print("local skill %s -> remote skill %s" % (
+            current_skill_version if skill_path else "unknown", skill_version))
+        if options["check"]:
+            if not update_cli and not update_skill:
+                print("already up to date")
+            else:
+                print("update available")
+            return 0
+        if not update_cli and not update_skill:
+            print("already up to date")
+            return 0
+
+        if update_cli:
+            targets = _update_targets()
+            if not targets:
+                raise OSError("no installed wiz executable found to update")
+            for target in targets:
+                _atomic_write_update(target, remote_source, executable=True)
+            print("updated CLI: %s" % ", ".join(targets))
+        if update_skill:
+            _atomic_write_update(skill_path, remote_skill)
+            print("updated Hermes skill: %s" % skill_path)
+        print("start a new Hermes session or run /reload-skills to load the skill update")
+        return 0
+    except (HTTPError, URLError, OSError, UnicodeError, ValueError) as exc:
+        print("wiz: update failed: %s" % exc)
+        return 1
+
+
 # ---------- command helpers ----------
 
 def split_target(cmd, args):
@@ -834,6 +1037,8 @@ def main():
         return cmd_status(state, auto_discover=True)
 
     cmd = argv[0]
+    if cmd == "update":
+        return cmd_update(argv[1:])
     if cmd == "find":
         if len(argv) == 1:
             return cmd_find(state)

@@ -2,25 +2,21 @@
 
 ![Python](https://img.shields.io/badge/python-3.7%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
-![Version](https://img.shields.io/badge/version-0.5.0-blue)
+![Version](https://img.shields.io/badge/version-0.6.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Control Philips WiZ smart lights from your terminal: no cloud, no bridge, and
 no third-party dependencies. The command is named `wiz`.
 
-## What changed in 0.5.0
+## What changed in 0.6.0
 
-- A bare `wiz` refreshes discovery before showing status.
-- Every discovered light gets a local numeric ID, such as `1` or `2`.
-- The WiZ MAC address is retained as the stable device identity when DHCP
-  changes the IP address.
-- Friendly names can be assigned and used as targets.
-- `wiz rgb` accepts both `ff8800` and `#ff8800` formats.
-- `wiz preset` lists and applies default lighting and named color presets.
-- `wiz ambience` lists known scene/effect IDs and their names.
-- `wiz forget` removes a light from this CLI's registry and keeps it ignored
-  until it is explicitly re-adopted.
-- The original IP/name cache is migrated automatically.
+- `wiz update` can update the CLI and the active Hermes WiZ skill together.
+- Updates are fetched over HTTPS from a pinned repository/ref and validated
+  before installation.
+- `--check` performs a read-only update check; `--force` reapplies the same
+  version; older remote versions are never installed as downgrades.
+- The existing discovery, registry, RGB, preset, ambience, and target-safety
+  features remain available.
 
 ```console
 $ wiz
@@ -69,6 +65,25 @@ curl -fsSL https://raw.githubusercontent.com/himanusia/wizctl/main/wiz.py -o ~/.
 
 Make sure `~/.local/bin` is on your `PATH`.
 
+### Updating
+
+```sh
+wiz update --check                 # read-only check
+wiz update                         # update from the stable main ref
+wiz update --force                 # reapply the same/newer version
+wiz update --ref feat/device-registry  # use an explicit branch or tag
+```
+
+`wiz update` downloads `wiz.py`, `pyproject.toml`, and the WiZ skill over
+HTTPS, checks that the source/package versions match, compiles the candidate
+without executing it, refuses downgrades, then atomically updates the installed
+`wiz`/`wizctl` scripts and the active Hermes skill under `HERMES_HOME`. It does
+not update other Hermes profiles. Start a new Hermes session or run
+`/reload-skills` after a skill update. Use `--check` to avoid writes.
+
+At the moment the new updater lives on the feature branch above; `main` still
+contains the older release until the branch is merged.
+
 **Windows**: install Python first if needed (`winget install Python.Python.3`),
 then save `wiz.py` anywhere and run `python wiz.py <command>`. Allow the
 firewall prompt on first run.
@@ -81,6 +96,7 @@ wiz list                     show cached status without discovery
 wiz find                     discover all WiZ lights
 wiz find --include-forgotten re-adopt forgotten lights
 wiz --version               print the CLI version
+wiz update [options]        update CLI + active Hermes WiZ skill
 wiz on | off                 turn every tracked light on / off
 wiz <10-100>                brightness percent (turns lights on)
 wiz night | warm | white | cool
@@ -167,7 +183,7 @@ creates a new local numeric ID; its old ID is not reused.
 
 ## State and migration
 
-The registry is stored at `~/.config/wiz/lights.json`. Version 0.5.0 migrates
+The registry is stored at `~/.config/wiz/lights.json`. Version 0.6.0 migrates
 the earlier format containing only `ip` and `name` entries the first time it
 writes the file. The v2 shape contains a numeric `id`, a stable WiZ `uid` when
 the device reports its MAC, the current `ip`, and the local `name`.

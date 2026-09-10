@@ -284,6 +284,103 @@ class WizRegistryTests(unittest.TestCase):
         self.assertIn("256", output.getvalue())
         self.assertIn("Custom Mode 1", output.getvalue())
 
+    def test_update_writes_cli_and_hermes_skill(self):
+        remote_source = 'VERSION = "0.7.0"\n'
+        remote_project = '[project]\nversion = "0.7.0"\n'
+        remote_skill = "---\nname: wiz-lan-control\nversion: 1.4.0\n---\nupdated\n"
+        with TemporaryDirectory() as tmp:
+            cli_path = os.path.join(tmp, "wiz")
+            skill_path = os.path.join(tmp, "SKILL.md")
+
+            def fetch(url):
+                if url.endswith("/wiz.py"):
+                    return remote_source
+                if url.endswith("/pyproject.toml"):
+                    return remote_project
+                if url.endswith("/skills/wiz/SKILL.md"):
+                    return remote_skill
+                raise AssertionError(url)
+
+            with patch.object(wiz, "_fetch_url", side_effect=fetch):
+                with patch.object(wiz, "_update_targets", return_value=[cli_path]):
+                    with patch.object(wiz, "_hermes_skill_path", return_value=skill_path):
+                        result = wiz.cmd_update(["--ref", "release-test"])
+
+            self.assertEqual(result, 0)
+            with open(cli_path) as handle:
+                self.assertEqual(handle.read(), remote_source)
+            with open(skill_path) as handle:
+                self.assertEqual(handle.read(), remote_skill)
+
+    def test_update_check_does_not_write_targets(self):
+        remote_source = 'VERSION = "0.7.0"\n'
+        remote_project = '[project]\nversion = "0.7.0"\n'
+        remote_skill = "---\nname: wiz-lan-control\nversion: 1.4.0\n---\n"
+        responses = {
+            "wiz.py": remote_source,
+            "pyproject.toml": remote_project,
+            "skills/wiz/SKILL.md": remote_skill,
+        }
+
+        def fetch(url):
+            return next(value for suffix, value in responses.items() if url.endswith("/" + suffix))
+
+        with patch.object(wiz, "_fetch_url", side_effect=fetch):
+            with patch.object(wiz, "_update_targets") as targets:
+                result = wiz.cmd_update(["--check", "--ref", "release-test"])
+
+        self.assertEqual(result, 0)
+        targets.assert_not_called()
+
+    def test_update_ref_rejects_url_injection(self):
+        with patch.object(wiz, "_fetch_url") as fetch:
+            result = wiz.cmd_update(["--ref", "../private"])
+
+        self.assertNotEqual(result, 0)
+        fetch.assert_not_called()
+
+    def test_update_does_not_downgrade_cli(self):
+        remote_source = 'VERSION = "0.4.0"\n'
+        remote_project = '[project]\nversion = "0.4.0"\n'
+        remote_skill = "---\nname: wiz-lan-control\nversion: 1.0.0\n---\n"
+        responses = {
+            "wiz.py": remote_source,
+            "pyproject.toml": remote_project,
+            "skills/wiz/SKILL.md": remote_skill,
+        }
+
+        def fetch(url):
+            return next(value for suffix, value in responses.items() if url.endswith("/" + suffix))
+
+        with patch.object(wiz, "_fetch_url", side_effect=fetch):
+            with patch.object(wiz, "_update_targets") as targets:
+                with patch.object(wiz, "_hermes_skill_path") as skill_path:
+                    result = wiz.cmd_update(["--ref", "release-test"])
+
+        self.assertEqual(result, 0)
+        targets.assert_not_called()
+        skill_path.assert_not_called()
+
+    def test_update_uses_project_version_for_legacy_source(self):
+        remote_source = "print('legacy wiz source')\n"
+        remote_project = '[project]\nversion = "0.4.0"\n'
+        remote_skill = "---\nname: wiz-lan-control\nversion: 1.0.0\n---\n"
+        responses = {
+            "wiz.py": remote_source,
+            "pyproject.toml": remote_project,
+            "skills/wiz/SKILL.md": remote_skill,
+        }
+
+        def fetch(url):
+            return next(value for suffix, value in responses.items() if url.endswith("/" + suffix))
+
+        with patch.object(wiz, "_fetch_url", side_effect=fetch):
+            with patch.object(wiz, "_update_targets") as targets:
+                result = wiz.cmd_update(["--ref", "release-test"])
+
+        self.assertEqual(result, 0)
+        targets.assert_not_called()
+
     def test_version_is_exposed_by_cli(self):
         with patch.object(sys, "argv", ["wiz", "--version"]):
             output = io.StringIO()
@@ -291,7 +388,7 @@ class WizRegistryTests(unittest.TestCase):
                 result = wiz.main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(output.getvalue().strip(), "wiz 0.5.0")
+        self.assertEqual(output.getvalue().strip(), "wiz 0.6.0")
 
 
 if __name__ == "__main__":
