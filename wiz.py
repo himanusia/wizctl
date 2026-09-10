@@ -473,7 +473,10 @@ def split_target(cmd, args):
     if expected is None and cmd.isdigit():
         expected = 0
     if expected is not None and len(args) > expected:
-        return args[:-1], args[-1]
+        target = args[-1].strip()
+        if not target:
+            sys.exit("wiz: target cannot be empty")
+        return args[:-1], target
     return args, None
 
 
@@ -866,7 +869,7 @@ def main():
         return cmd_rename(state, args, resolve_targets(state, target))
     if cmd == "forget":
         _validate_args(cmd, args)
-        cmd_forget(state, resolve_targets(state, target) if target else [])
+        cmd_forget(state, resolve_targets(state, target) if target is not None else [])
         return 0
 
     if cmd.isdigit() or cmd in ("on", "off") or cmd in PRESETS \

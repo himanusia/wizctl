@@ -162,6 +162,25 @@ class WizRegistryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             wiz.resolve_targets(state, " ")
 
+    def test_quoted_empty_forget_target_is_rejected_without_deleting(self):
+        state = {
+            "version": 2,
+            "next_id": 2,
+            "ignored": [],
+            "lights": [
+                {"id": "1", "uid": "mac:111111111111", "ip": "192.0.2.50", "name": "desk"},
+            ],
+        }
+        wiz.save_state(state)
+
+        with patch.object(sys, "argv", ["wiz", "forget", ""]):
+            with self.assertRaises(SystemExit):
+                wiz.main()
+
+        saved = wiz.load_state()
+        self.assertEqual(len(saved["lights"]), 1)
+        self.assertEqual(saved["lights"][0]["name"], "desk")
+
     def test_forget_by_id_persists_ignored_uid(self):
         state = {
             "version": 2,
