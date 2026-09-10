@@ -17,12 +17,20 @@ Usage:
   wiz night | warm | white | cool
                                temperature presets (night = dim warm)
   wiz temp <2700-6500>        color temperature in Kelvin
-  wiz rgb RRGGBB              set RGB color (color models only;
-                               white-only models silently ignore it)
-  wiz scene <id>              activate a scene by numeric id (1-32)
+  wiz preset                   list default lighting and color presets
+  wiz preset <name> [target]   apply a named preset
+  wiz color <name> [target]   apply a named color preset
+  wiz rgb RRGGBB [target]     set an RGB color (also accepts #RRGGBB)
+  wiz ambience                 list known ambience/scene IDs and names
+  wiz ambience <id> [target]  activate an ambience by ID or known name
+  wiz scene <id> [target]     activate an ambience by ID or known name
   wiz rename <name> [target]  give the targeted light(s) a friendly name
   wiz forget [target]         remove light(s) from this CLI's registry
   wiz add <ip>                manually add a light by IP
+
+RGB examples:
+  wiz rgb ff8800 @desk
+  wiz rgb '#ff8800' @desk
 
 Targets can be a numeric ID, a friendly name, or an IP address. Prefixing a
 target with ``@`` makes the intent explicit, for example ``wiz off @desk``.
@@ -40,7 +48,7 @@ import string
 import sys
 import time
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 STATE_VERSION = 2
 PORT = 38899
 CONF_DIR = os.path.expanduser("~/.config/wiz")
@@ -53,6 +61,64 @@ PRESETS = {"night": {"dimming": 10, "temp": 2700},
            "white": {"temp": 4000},
            "cool": {"temp": 6500}}
 
+COLOR_PRESETS = {
+    "red": "ff0000",
+    "orange": "ff8800",
+    "yellow": "ffd000",
+    "green": "00ff66",
+    "cyan": "00ffff",
+    "blue": "0066ff",
+    "purple": "8833ff",
+    "pink": "ff4f9a",
+    "magenta": "ff00ff",
+}
+
+# Standard scene/effect IDs published by community WiZ integrations. Newer
+# firmware can expose additional IDs, so numeric scene IDs remain accepted.
+AMBIENCE = {
+    1: "Ocean",
+    2: "Romance",
+    3: "Sunset",
+    4: "Party",
+    5: "Fireplace",
+    6: "Cozy",
+    7: "Forest",
+    8: "Pastel colors",
+    9: "Wake-up",
+    10: "Bedtime",
+    11: "Warm white",
+    12: "Daylight",
+    13: "Cool white",
+    14: "Night light",
+    15: "Focus",
+    16: "Relax",
+    17: "True colors",
+    18: "TV time",
+    19: "Plantgrowth",
+    20: "Spring",
+    21: "Summer",
+    22: "Fall",
+    23: "Deep dive",
+    24: "Jungle",
+    25: "Mojito",
+    26: "Club",
+    27: "Christmas",
+    28: "Halloween",
+    29: "Candlelight",
+    30: "Golden white",
+    31: "Pulse",
+    32: "Steampunk",
+    33: "Diwali",
+    34: "White",
+    35: "Alarm",
+    36: "Snowy sky",
+    40: "Dim-to-warm",
+    1000: "Rhythm",
+}
+for _custom_index in range(1, 11):
+    AMBIENCE[255 + _custom_index] = "Custom Mode %d" % _custom_index
+
+
 # Number of positional arguments before an optional trailing target.
 COMMAND_ARGUMENTS = {
     "on": 0,
@@ -64,7 +130,11 @@ COMMAND_ARGUMENTS = {
     "white": 0,
     "cool": 0,
     "temp": 1,
+    "preset": 1,
+    "color": 1,
     "rgb": 1,
+    "ambience": 1,
+    "ambiance": 1,
     "scene": 1,
     "rename": 1,
     "forget": 0,
@@ -395,7 +465,10 @@ def split_target(cmd, args):
     """Split the optional trailing target from command arguments."""
     args = list(args)
     if args and args[-1].startswith("@"):
-        return args[:-1], args[-1][1:]
+        target = args[-1][1:].strip()
+        if not target:
+            sys.exit("wiz: target after '@' cannot be empty")
+        return args[:-1], target
     expected = COMMAND_ARGUMENTS.get(cmd)
     if expected is None and cmd.isdigit():
         expected = 0
@@ -406,9 +479,11 @@ def split_target(cmd, args):
 
 def resolve_targets(state, target=None):
     lights = _sort_lights(state.get("lights", []))
-    if not target:
+    if target is None:
         return lights
     target = str(target).strip()
+    if not target:
+        sys.exit("wiz: target cannot be empty")
     if looks_like_ip(target):
         matches = [light for light in lights if light.get("ip") == target]
         if matches:
@@ -450,6 +525,46 @@ def parse_temp(value):
     return max(2200, min(kelvin, 6500))
 
 
+def parse_rgb(value):
+    text = str(value).strip().lower()
+    if text.startswith("#"):
+        text = text[1:]
+    if len(text) != 6 or any(char not in string.hexdigits for char in text):
+        sys.exit("wiz: rgb expects hex like ff8800 or '#ff8800'")
+    return {
+        "r": int(text[0:2], 16),
+        "g": int(text[2:4], 16),
+        "b": int(text[4:6], 16),
+        "state": True,
+    }
+
+
+def _normalized_label(value):
+    return " ".join(str(value).strip().lower().replace("_", " ").replace("-", " ").split())
+
+
+def preset_params(value):
+    name = str(value).strip().lower().replace("_", "-")
+    if name in PRESETS:
+        params = dict(PRESETS[name])
+        params["state"] = True
+        return params
+    if name in COLOR_PRESETS:
+        return parse_rgb(COLOR_PRESETS[name])
+    sys.exit("wiz: unknown preset '%s' (run 'wiz preset' for help)" % value)
+
+
+def ambience_id(value):
+    text = str(value).strip()
+    if text.isdigit():
+        return int(text)
+    normalized = _normalized_label(text)
+    for scene_id, name in AMBIENCE.items():
+        if _normalized_label(name) == normalized:
+            return scene_id
+    sys.exit("wiz: unknown ambience '%s' (run 'wiz ambience' for help)" % value)
+
+
 def build_params(cmd, args):
     """Translate a command into setPilot params, or None for read-only cmds."""
     if cmd == "on":
@@ -464,18 +579,12 @@ def build_params(cmd, args):
         return params
     if cmd == "temp":
         return {"temp": parse_temp(args[0]), "state": True}
+    if cmd in ("preset", "color"):
+        return preset_params(args[0])
     if cmd == "rgb":
-        try:
-            r, g, b = (int(args[0][index:index + 2], 16) for index in (0, 2, 4))
-        except (IndexError, ValueError):
-            sys.exit("wiz: rgb expects hex like ff8800")
-        if len(args[0]) != 6:
-            sys.exit("wiz: rgb expects hex like ff8800")
-        return {"r": r, "g": g, "b": b, "state": True}
-    if cmd == "scene":
-        if not args[0].isdigit():
-            sys.exit("usage: wiz scene <id>")
-        return {"sceneId": int(args[0]), "state": True}
+        return parse_rgb(args[0])
+    if cmd in ("ambience", "ambiance", "scene"):
+        return {"sceneId": ambience_id(args[0]), "state": True}
     return None
 
 
@@ -506,7 +615,10 @@ def apply(record, params):
             state = "ON " if pilot.get("state") else "off"
             bits = ["dim=%s%%" % pilot.get("dimming")]
             if pilot.get("sceneId"):
-                bits.append("scene=%s" % pilot["sceneId"])
+                scene_id = pilot["sceneId"]
+                scene_name = AMBIENCE.get(scene_id)
+                scene_label = "%s (%s)" % (scene_id, scene_name) if scene_name else str(scene_id)
+                bits.append("scene=%s" % scene_label)
             if pilot.get("temp"):
                 bits.append("%sK" % pilot["temp"])
             if any(key in pilot for key in ("r", "g", "b")):
@@ -539,10 +651,47 @@ def label_for(params):
     if "r" in params:
         labels.append("#%02x%02x%02x" % (params["r"], params["g"], params["b"]))
     if "sceneId" in params:
-        labels.append("scene %s" % params["sceneId"])
+        scene_id = params["sceneId"]
+        scene_name = AMBIENCE.get(scene_id)
+        labels.append("ambience %s (%s)" % (scene_id, scene_name) if scene_name else "scene %s" % scene_id)
     if params.get("state") is False:
         labels.append("power off")
     return ", ".join(labels) or "power on"
+
+
+def cmd_preset_help():
+    print("Built-in lighting presets:")
+    for name in ("night", "warm", "white", "cool"):
+        params = PRESETS[name]
+        details = []
+        if "dimming" in params:
+            details.append("%s%%" % params["dimming"])
+        if "temp" in params:
+            details.append("%sK" % params["temp"])
+        print("  %-10s %s" % (name, ", ".join(details)))
+    print("Built-in color presets:")
+    for name in sorted(COLOR_PRESETS):
+        print("  %-10s #%s" % (name, COLOR_PRESETS[name]))
+    print("Use: wiz preset <name> [@target]  (or: wiz color <name> [@target])")
+    return 0
+
+
+def cmd_ambience_help():
+    print("Known WiZ ambience/scene IDs (firmware support may vary):")
+    for scene_id in sorted(AMBIENCE):
+        print("  %-4s %s" % (scene_id, AMBIENCE[scene_id]))
+    print("Use: wiz ambience <id|name> [@target]")
+    print("Alias: wiz scene <id|name> [@target]")
+    print("Custom modes and newer firmware effects may expose additional IDs.")
+    return 0
+
+
+def cmd_rgb_help():
+    print("RGB expects six hexadecimal digits:")
+    print("  wiz rgb ff8800 @desk       orange")
+    print("  wiz rgb '#ff8800' @desk    same color with #")
+    print("Use: wiz rgb RRGGBB [@target]")
+    return 0
 
 
 def _validate_args(cmd, args):
@@ -552,10 +701,12 @@ def _validate_args(cmd, args):
             sys.exit("usage: wiz rename <name> [@target]")
         if cmd == "temp":
             sys.exit("usage: wiz temp <kelvin> [@target]")
+        if cmd in ("preset", "color"):
+            sys.exit("usage: wiz %s <name> [@target]" % cmd)
         if cmd == "rgb":
             sys.exit("usage: wiz rgb RRGGBB [@target]")
-        if cmd == "scene":
-            sys.exit("usage: wiz scene <id> [@target]")
+        if cmd in ("ambience", "ambiance", "scene"):
+            sys.exit("usage: wiz ambience <id|name> [@target]")
         sys.exit("usage: wiz %s [@target]" % cmd)
 
 
@@ -697,6 +848,16 @@ def main():
             sys.exit("usage: wiz list")
         return cmd_status(state)
 
+    help_words = ("help", "list", "--help", "-h")
+    if cmd in ("preset", "presets", "color") and (
+            len(argv) == 1 or (len(argv) == 2 and argv[1] in help_words)):
+        return cmd_preset_help()
+    if cmd in ("ambience", "ambiance", "scenes", "scene") and (
+            len(argv) == 1 or (len(argv) == 2 and argv[1] in help_words)):
+        return cmd_ambience_help()
+    if cmd == "rgb" and len(argv) == 2 and argv[1] in help_words:
+        return cmd_rgb_help()
+
     args, target = split_target(cmd, argv[1:])
     if cmd == "status":
         _validate_args(cmd, args)
@@ -709,7 +870,7 @@ def main():
         return 0
 
     if cmd.isdigit() or cmd in ("on", "off") or cmd in PRESETS \
-            or cmd in ("temp", "rgb", "scene"):
+            or cmd in ("temp", "preset", "color", "rgb", "ambience", "ambiance", "scene"):
         return cmd_control(state, cmd, args, target)
     sys.exit("wiz: unknown command '%s' (run 'wiz --help' for help)" % cmd)
 

@@ -2,19 +2,22 @@
 
 ![Python](https://img.shields.io/badge/python-3.6%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
-![Version](https://img.shields.io/badge/version-0.4.0-blue)
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Control Philips WiZ smart lights from your terminal: no cloud, no bridge, and
 no third-party dependencies. The command is named `wiz`.
 
-## What changed in 0.4.0
+## What changed in 0.5.0
 
 - A bare `wiz` refreshes discovery before showing status.
 - Every discovered light gets a local numeric ID, such as `1` or `2`.
 - The WiZ MAC address is retained as the stable device identity when DHCP
   changes the IP address.
 - Friendly names can be assigned and used as targets.
+- `wiz rgb` accepts both `ff8800` and `#ff8800` formats.
+- `wiz preset` lists and applies default lighting and named color presets.
+- `wiz ambience` lists known scene/effect IDs and their names.
 - `wiz forget` removes a light from this CLI's registry and keeps it ignored
   until it is explicitly re-adopted.
 - The original IP/name cache is migrated automatically.
@@ -83,8 +86,13 @@ wiz <10-100>                brightness percent (turns lights on)
 wiz night | warm | white | cool
                              temperature presets
 wiz temp <2700-6500>        color temperature in Kelvin
-wiz rgb RRGGBB              RGB color (color models only)
-wiz scene <id>              activate a scene by numeric ID
+wiz preset                   list default lighting and color presets
+wiz preset <name> [target]   apply a named lighting/color preset
+wiz color <name> [target]   apply a named color preset
+wiz rgb RRGGBB [target]     RGB color; also accepts `#RRGGBB`
+wiz ambience                 list ambience/scene IDs and names
+wiz ambience <id|name>      activate a known ambience
+wiz scene <id|name>         alias for ambience
 wiz rename <name> [target]  assign a friendly name
 wiz forget [target]         remove light(s) from this CLI registry
 wiz add <ip>                manually register a light by IP
@@ -107,6 +115,40 @@ A name target is case-insensitive and supports a prefix. A command without a
 target applies to every tracked light. Direct IP control also works before a
 light has been registered.
 
+### RGB and named presets
+
+```sh
+wiz rgb ff8800 @desk       # orange
+wiz rgb '#ff8800' @desk    # same color; quote # in the shell
+wiz preset                 # list default lighting and color presets
+wiz preset night @desk
+wiz preset orange @desk
+wiz color blue @desk       # alias for a color preset
+```
+
+The default lighting presets are `night`, `warm`, `white`, and `cool`. Color
+presets include `red`, `orange`, `yellow`, `green`, `cyan`, `blue`, `purple`,
+`pink`, and `magenta`. RGB/color commands require a color-capable bulb; a
+white-only bulb may ignore RGB values.
+
+### Ambience / scenes
+
+WiZ calls these light modes or effects in different app versions; the local
+protocol sends them as `sceneId`. Ask the CLI for the catalog:
+
+```sh
+wiz ambience
+wiz ambience help
+wiz ambience 1 @desk          # Ocean
+wiz ambience "Dim-to-warm" @desk
+wiz scene 1000 @desk          # Rhythm
+```
+
+The help output includes standard IDs, `Rhythm`, and known custom-mode IDs.
+Firmware and bulb class determine which entries actually work, and newer
+firmware may expose additional IDs. Unknown numeric IDs remain accepted so the
+CLI does not block a valid newer device mode.
+
 ### Forgetting and re-adopting
 
 `forget` removes a light from the local registry. It does **not** turn off,
@@ -125,7 +167,7 @@ creates a new local numeric ID; its old ID is not reused.
 
 ## State and migration
 
-The registry is stored at `~/.config/wiz/lights.json`. Version 0.4.0 migrates
+The registry is stored at `~/.config/wiz/lights.json`. Version 0.5.0 migrates
 the earlier format containing only `ip` and `name` entries the first time it
 writes the file. The v2 shape contains a numeric `id`, a stable WiZ `uid` when
 the device reports its MAC, the current `ip`, and the local `name`.
@@ -169,6 +211,18 @@ UDP port 38899, unauthenticated, LAN-only.
 Anything on the local network may be able to control these bulbs because the
 firmware protocol has no authentication. Do not expose this script as an
 internet-facing service.
+
+## Scope
+
+Implemented here: local discovery, registry IDs/names, on/off, brightness,
+color temperature, RGB, named lighting/color presets, known ambience/scene
+activation, and safe forgetting/re-adoption.
+
+Not implemented here: WiZ account/cloud control, rooms/groups managed by the
+app, schedules and automations, WiZclick, custom light-mode/gradient editing,
+dynamic-effect speed controls, firmware/pairing/reset operations, sensors and
+other accessories, and device-specific capabilities outside the basic local
+pilot API. The official app may expose more features than this LAN CLI.
 
 ## Development
 

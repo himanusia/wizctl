@@ -149,6 +149,19 @@ class WizRegistryTests(unittest.TestCase):
         self.assertEqual(by_ip[0]["id"], "2")
         self.assertEqual(brightness_target, "desk")
 
+    def test_empty_explicit_target_is_rejected(self):
+        state = {
+            "version": 2,
+            "next_id": 1,
+            "ignored": [],
+            "lights": [],
+        }
+
+        with self.assertRaises(SystemExit):
+            wiz.split_target("off", ["@"])
+        with self.assertRaises(SystemExit):
+            wiz.resolve_targets(state, " ")
+
     def test_forget_by_id_persists_ignored_uid(self):
         state = {
             "version": 2,
@@ -199,6 +212,59 @@ class WizRegistryTests(unittest.TestCase):
         self.assertIn("[1]", output.getvalue())
         self.assertIn("192.0.2.50", output.getvalue())
 
+    def test_rgb_accepts_hash_hex_example(self):
+        self.assertEqual(
+            wiz.build_params("rgb", ["#ff8800"]),
+            {"r": 255, "g": 136, "b": 0, "state": True},
+        )
+
+    def test_named_color_preset_builds_rgb_params(self):
+        self.assertEqual(
+            wiz.build_params("preset", ["orange"]),
+            {"r": 255, "g": 136, "b": 0, "state": True},
+        )
+        self.assertEqual(
+            wiz.build_params("color", ["blue"]),
+            {"r": 0, "g": 102, "b": 255, "state": True},
+        )
+
+    def test_named_ambience_builds_scene_params(self):
+        self.assertEqual(
+            wiz.build_params("ambience", ["Ocean"]),
+            {"sceneId": 1, "state": True},
+        )
+        self.assertEqual(
+            wiz.build_params("scene", ["35"]),
+            {"sceneId": 35, "state": True},
+        )
+
+    def test_preset_help_lists_default_and_color_presets(self):
+        with patch.object(sys, "argv", ["wiz", "preset"]):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = wiz.main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("night", output.getvalue())
+        self.assertIn("orange", output.getvalue())
+        self.assertIn("#ff8800", output.getvalue())
+
+    def test_ambience_help_lists_ids_and_names(self):
+        with patch.object(sys, "argv", ["wiz", "ambience"]):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = wiz.main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("1", output.getvalue())
+        self.assertIn("Ocean", output.getvalue())
+        self.assertIn("35", output.getvalue())
+        self.assertIn("Alarm", output.getvalue())
+        self.assertIn("1000", output.getvalue())
+        self.assertIn("Rhythm", output.getvalue())
+        self.assertIn("256", output.getvalue())
+        self.assertIn("Custom Mode 1", output.getvalue())
+
     def test_version_is_exposed_by_cli(self):
         with patch.object(sys, "argv", ["wiz", "--version"]):
             output = io.StringIO()
@@ -206,7 +272,7 @@ class WizRegistryTests(unittest.TestCase):
                 result = wiz.main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(output.getvalue().strip(), "wiz 0.4.0")
+        self.assertEqual(output.getvalue().strip(), "wiz 0.5.0")
 
 
 if __name__ == "__main__":
