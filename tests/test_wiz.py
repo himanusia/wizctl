@@ -66,6 +66,65 @@ class WizRegistryTests(unittest.TestCase):
         self.assertEqual(second["uid"], "mac:aabbccddeeff")
         self.assertEqual(len(state["lights"]), 1)
 
+    def test_different_mac_at_reused_ip_does_not_inherit_old_identity(self):
+        state = wiz.empty_state()
+        old = wiz.merge_discovered(
+            state,
+            [{"ip": "192.0.2.50", "mac": "AA:AA:AA:AA:AA:AA"}],
+        )[0]
+        old["name"] = "desk"
+        new = wiz.merge_discovered(
+            state,
+            [{"ip": "192.0.2.50", "mac": "BB:BB:BB:BB:BB:BB"}],
+        )[0]
+
+        self.assertNotEqual(new["id"], old["id"])
+        self.assertEqual(old["uid"], "mac:aaaaaaaaaaaa")
+        self.assertEqual(old["name"], "desk")
+        self.assertIsNone(old["ip"])
+        self.assertEqual(new["uid"], "mac:bbbbbbbbbbbb")
+        self.assertIsNone(new["name"])
+        self.assertEqual(new["ip"], "192.0.2.50")
+        self.assertEqual(len(state["lights"]), 2)
+
+    def test_offline_conflict_record_round_trips_without_string_none(self):
+        state = wiz.empty_state()
+        old = wiz.merge_discovered(
+            state,
+            [{"ip": "192.0.2.50", "mac": "AA:AA:AA:AA:AA:AA"}],
+        )[0]
+        old["name"] = "desk"
+        wiz.merge_discovered(
+            state,
+            [{"ip": "192.0.2.50", "mac": "BB:BB:BB:BB:BB:BB"}],
+        )
+        wiz.save_state(state)
+
+        loaded = wiz.load_state()
+        old_loaded = next(
+            light for light in loaded["lights"]
+            if light["uid"] == "mac:aaaaaaaaaaaa"
+        )
+        self.assertIsNone(old_loaded["ip"])
+        self.assertEqual(old_loaded["last_ip"], "192.0.2.50")
+
+    def test_offline_record_never_sends_command_to_stale_ip(self):
+        record = {
+            "id": "1",
+            "uid": "mac:aaaaaaaaaaaa",
+            "ip": None,
+            "last_ip": "192.0.2.50",
+            "name": "desk",
+        }
+        with patch.object(wiz, "get_pilot") as get_pilot:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = wiz.apply(record, None)
+
+        self.assertFalse(result)
+        get_pilot.assert_not_called()
+        self.assertIn("no current IP", output.getvalue())
+
     def test_resolves_numeric_id_name_and_ip(self):
         state = {
             "version": 2,

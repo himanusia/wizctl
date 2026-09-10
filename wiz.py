@@ -172,7 +172,11 @@ def load_state():
 
     used_ids = set()
     for entry in raw_lights:
-        if not isinstance(entry, dict) or not entry.get("ip"):
+        if not isinstance(entry, dict):
+            continue
+        raw_ip = entry.get("ip")
+        raw_last_ip = entry.get("last_ip")
+        if not raw_ip and not raw_last_ip:
             continue
         record_id = str(entry.get("id", ""))
         if not _numeric_id(record_id) or record_id in used_ids:
@@ -180,12 +184,15 @@ def load_state():
         else:
             used_ids.add(record_id)
             state["next_id"] = max(state["next_id"], int(record_id) + 1)
-        state["lights"].append({
+        record = {
             "id": record_id,
             "uid": canonical_uid(entry.get("uid") or entry.get("mac")),
-            "ip": str(entry["ip"]),
+            "ip": str(raw_ip) if raw_ip else None,
             "name": entry.get("name") or None,
-        })
+        }
+        if raw_last_ip:
+            record["last_ip"] = str(raw_last_ip)
+        state["lights"].append(record)
 
     state["lights"] = _sort_lights(state["lights"])
     return state
@@ -200,12 +207,15 @@ def save_state(state):
         "lights": [],
     }
     for light in _sort_lights(state.get("lights", [])):
-        payload["lights"].append({
+        entry = {
             "id": str(light["id"]),
             "uid": canonical_uid(light.get("uid")),
-            "ip": str(light["ip"]),
+            "ip": str(light["ip"]) if light.get("ip") else None,
             "name": light.get("name") or None,
-        })
+        }
+        if light.get("last_ip"):
+            entry["last_ip"] = str(light["last_ip"])
+        payload["lights"].append(entry)
     temporary = CACHE_FILE + ".tmp"
     with open(temporary, "w") as handle:
         json.dump(payload, handle, indent=2, sort_keys=False)
@@ -240,6 +250,13 @@ def _remove_ignored_keys(state, keys):
     state["ignored"] = [key for key in state.get("ignored", []) if key not in keys]
 
 
+def _detach_record(record):
+    """Keep a conflicting device visible without routing traffic to its old IP."""
+    if record.get("ip"):
+        record["last_ip"] = record["ip"]
+    record["ip"] = None
+
+
 def merge_discovered(state, discovered, include_ignored=False):
     """Merge discovery results and return the tracked records that were seen."""
     tracked = []
@@ -256,19 +273,31 @@ def merge_discovered(state, discovered, include_ignored=False):
         if include_ignored:
             _remove_ignored_keys(state, keys)
 
-        record = _record_by_uid(state["lights"], uid) or _record_by_ip(state["lights"], ip)
+        by_uid = _record_by_uid(state["lights"], uid)
         by_ip = _record_by_ip(state["lights"], ip)
-        if record and by_ip and record is not by_ip:
-            # A DHCP change can make a UID match an old record while the new IP
-            # is still present as a second stale record. Keep the named record.
-            if not record.get("name"):
-                record["name"] = by_ip.get("name")
-            state["lights"].remove(by_ip)
+        if uid:
+            # A reported UID is authoritative. Only use the IP fallback when
+            # the current record has no UID of its own; never overwrite a
+            # known device identity merely because its IP was reused.
+            record = by_uid
+            if by_ip and by_ip is not record:
+                if by_ip.get("uid"):
+                    _detach_record(by_ip)
+                elif record is None:
+                    record = by_ip
+        else:
+            # Without a reported UID, the current IP is the only safe handle.
+            record = by_ip
+
         if record is None:
             record = _new_record(state, ip, uid)
             state["lights"].append(record)
         else:
+            old_ip = record.get("ip")
+            if old_ip and old_ip != ip:
+                record["last_ip"] = old_ip
             record["ip"] = ip
+            record.pop("last_ip", None)
             if uid:
                 record["uid"] = uid
         tracked.append(record)
@@ -455,15 +484,22 @@ def _record_name(record):
 
 
 def _record_prefix(record):
+    ip = record.get("ip")
+    if not ip:
+        last_ip = record.get("last_ip")
+        ip = (str(last_ip) + " (offline)") if last_ip else "-"
     return "[%s] %-12s %-15s" % (
         record.get("id", "-"),
         _record_name(record),
-        record.get("ip", "-"),
+        ip,
     )
 
 
 def apply(record, params):
-    ip = record["ip"]
+    ip = record.get("ip")
+    if not ip:
+        print("  %s  ✗ no current IP" % _record_prefix(record))
+        return False
     try:
         if params is None:
             pilot = get_pilot(ip)
@@ -592,7 +628,10 @@ def cmd_forget(state, targets):
             None,
         )
         if actual:
-            key = actual.get("uid") or "ip:" + actual["ip"]
+            key = actual.get("uid")
+            if not key:
+                old_ip = actual.get("ip") or actual.get("last_ip")
+                key = "ip:" + str(old_ip) if old_ip else "id:" + str(actual["id"])
             _remember_ignored(state, key)
             state["lights"].remove(actual)
             print("  %s  forgotten" % _record_prefix(actual))

@@ -85,6 +85,9 @@ re-adopted device receives a new local numeric ID; old IDs are never reused.
 - After a set command, the CLI reads and prints the resulting state.
 - Unreachable lights are reported once; the process does not retry-loop on UDP
   timeouts, and its exit code is non-zero if any target failed.
+- A discovered MAC is authoritative. If a different MAC appears at an old IP,
+  the old record is retained as offline and the new device gets a new ID; never
+  inherit a name from an IP collision.
 - The protocol is LAN-only by design. Do not claim remote/cloud control.
 - White-spectrum models may clamp out-of-range temperatures automatically.
 - Testing etiquette: note the current state first and restore it afterwards.

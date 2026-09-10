@@ -130,6 +130,10 @@ the earlier format containing only `ip` and `name` entries the first time it
 writes the file. The v2 shape contains a numeric `id`, a stable WiZ `uid` when
 the device reports its MAC, the current `ip`, and the local `name`.
 
+If a different MAC appears on an IP previously used by another tracked light,
+the old record is retained as offline and the new device gets a separate ID.
+This prevents a reused DHCP address from inheriting the old light's name.
+
 The numeric ID is a local handle, not a WiZ cloud/account ID. The MAC-derived
 UID is what lets discovery associate the same bulb after a DHCP address change.
 If a particular firmware does not report a MAC, the current IP is the fallback
