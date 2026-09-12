@@ -51,7 +51,7 @@ commands still target only tracked lights unless given a direct IP.
 wiz update --check                    # read-only check
 wiz update                            # stable main ref; Hermes skill by default
 wiz update --force                    # reapply same/newer versions
-wiz update --ref feat/device-registry # explicit branch/tag
+wiz update --ref <branch-or-tag> # explicit source ref
 wiz update --harness codex            # also sync Codex global skill
 wiz update --harness claude           # also sync Claude Code skill
 wiz update --harness opencode         # also sync OpenCode skill
