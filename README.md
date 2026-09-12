@@ -2,23 +2,10 @@
 
 ![Python](https://img.shields.io/badge/python-3.7%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
-![Version](https://img.shields.io/badge/version-0.7.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Control Philips WiZ smart lights from your terminal: no cloud, no bridge, and
 no third-party dependencies. The command is named `wiz`.
-
-## What changed in 0.7.0
-
-- `wiz update` can update the CLI and selected agent skill copies together.
-- The default target remains the active Hermes skill; use `--harness` for Codex,
-  Claude Code, OpenCode, or all supported harnesses.
-- Updates are fetched over HTTPS from a pinned repository/ref and validated
-  before installation.
-- `--check` performs a read-only update check; `--force` reapplies the same
-  version; older remote versions are never installed as downgrades.
-- The existing discovery, registry, RGB, preset, ambience, and target-safety
-  features remain available.
 
 ```console
 $ wiz
@@ -73,7 +60,7 @@ Make sure `~/.local/bin` is on your `PATH`.
 wiz update --check                         # read-only check
 wiz update                                  # CLI + active Hermes skill
 wiz update --force                          # reapply the same/newer version
-wiz update --ref feat/device-registry       # use an explicit branch or tag
+wiz update --ref <branch-or-tag>                # use an explicit source ref
 wiz update --harness codex                  # also/update Codex global skill
 wiz update --harness claude                 # also/update Claude Code skill
 wiz update --harness opencode               # also/update OpenCode skill
@@ -93,9 +80,6 @@ is the active Hermes skill under `HERMES_HOME`; the other global targets are:
 Use `--harness all` to update all four global targets explicitly. The updater
 does not overwrite project-local skill copies or other Hermes profiles. Reload
 the relevant harness session after a skill update. Use `--check` to avoid writes.
-
-At the moment the new updater lives on the feature branch above; `main` still
-contains the older release until the branch is merged.
 
 **Windows**: install Python first if needed (`winget install Python.Python.3`),
 then save `wiz.py` anywhere and run `python wiz.py <command>`. Allow the
@@ -196,7 +180,7 @@ creates a new local numeric ID; its old ID is not reused.
 
 ## State and migration
 
-The registry is stored at `~/.config/wiz/lights.json`. Version 0.7.0 migrates
+The registry is stored at `~/.config/wiz/lights.json`. The CLI migrates
 the earlier format containing only `ip` and `name` entries the first time it
 writes the file. The v2 shape contains a numeric `id`, a stable WiZ `uid` when
 the device reports its MAC, the current `ip`, and the local `name`.
