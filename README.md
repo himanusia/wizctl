@@ -114,7 +114,8 @@ wiz add <ip>                manually register a light by IP
 ### Targeting one light
 
 Targets can be a local numeric ID, a friendly name, or an IP address. A trailing
-`@` makes the target explicit and is recommended in scripts:
+`@` makes the target explicit and is recommended in scripts. For interactive
+use, target-first syntax is also accepted:
 
 ```sh
 wiz rename desk @1
@@ -122,11 +123,16 @@ wiz on @desk
 wiz 40 @desk
 wiz warm 192.0.2.50
 wiz off 2
+
+wiz desk ambience romance
+wiz desk on
+wiz 2 cool
 ```
 
-A name target is case-insensitive and supports a prefix. A command without a
-target applies to every tracked light. Direct IP control also works before a
-light has been registered.
+The target-first form is equivalent to the trailing-target form; both remain
+supported. A name target is case-insensitive and supports a prefix. A command
+without a target applies to every tracked light. Direct IP control also works
+before a light has been registered.
 
 ### RGB and named presets
 
@@ -219,7 +225,9 @@ UDP port 38899, unauthenticated, LAN-only.
 - `getPilot` reads current state (power, dimming, temperature, color, scene).
 - `setPilot` applies changes (`state`, `dimming`, `temp`, `r/g/b`, `sceneId`).
 - Discovery broadcasts a `registration` probe; bulbs answer with their IP and,
-  on supported firmware, a MAC address.
+  on supported firmware, a MAC address. If the registration response omits the
+  MAC, `wiz` asks `getSystemConfig` for it before merging the device into the
+  local registry.
 
 Anything on the local network may be able to control these bulbs because the
 firmware protocol has no authentication. Do not expose this script as an
