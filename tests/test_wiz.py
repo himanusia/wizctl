@@ -52,16 +52,31 @@ class WizRegistryTests(unittest.TestCase):
 
     def test_system_config_mac_backfills_missing_discovery_uid(self):
         record = {"ip": "192.0.2.50", "uid": None}
-        with patch.object(wiz, "get_system_config", return_value={"mac": "44:4F:8E:B5:F9:0E"}):
+        with patch.object(
+            wiz,
+            "get_system_config",
+            return_value={"mac": "44:4F:8E:B5:F9:0E", "moduleName": "ESP25_SHRGB_01"},
+        ):
             self.assertIs(wiz.enrich_discovery_uid(record), record)
         self.assertEqual(record["uid"], "mac:444f8eb5f90e")
+        self.assertEqual(record["kind"], "rgb")
 
     def test_system_config_backfill_does_not_replace_existing_uid(self):
-        record = {"ip": "192.0.2.50", "uid": "mac:111111111111"}
+        record = {
+            "ip": "192.0.2.50",
+            "uid": "mac:111111111111",
+            "kind": "rgb",
+        }
         with patch.object(wiz, "get_system_config") as get_config:
             wiz.enrich_discovery_uid(record)
         get_config.assert_not_called()
         self.assertEqual(record["uid"], "mac:111111111111")
+
+    def test_module_kind_labels_cover_rgb_and_tunable_white(self):
+        self.assertEqual(wiz.classify_module("ESP25_SHRGB_01"), "rgb")
+        self.assertEqual(wiz.classify_module("ESP24_SHTWW_01"), "tunable-white")
+        self.assertEqual(wiz.display_device_kind({"kind": "rgb"}), "RGB")
+        self.assertEqual(wiz.display_device_kind({"kind": "tunable-white"}), "tunable white")
 
     def test_mac_keeps_same_id_when_ip_changes(self):
         state = wiz.empty_state()
@@ -346,8 +361,8 @@ class WizRegistryTests(unittest.TestCase):
         self.assertIn("Custom Mode 1", output.getvalue())
 
     def test_update_writes_cli_and_hermes_skill(self):
-        remote_source = 'VERSION = "0.9.0"\n'
-        remote_project = '[project]\nversion = "0.9.0"\n'
+        remote_source = 'VERSION = "0.10.0"\n'
+        remote_project = '[project]\nversion = "0.10.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.4.0\n---\nupdated\n"
         with TemporaryDirectory() as tmp:
             cli_path = os.path.join(tmp, "wiz")
@@ -374,8 +389,8 @@ class WizRegistryTests(unittest.TestCase):
                 self.assertEqual(handle.read(), remote_skill)
 
     def test_update_syncs_selected_non_hermes_harnesses(self):
-        remote_source = 'VERSION = "0.9.0"\n'
-        remote_project = '[project]\nversion = "0.9.0"\n'
+        remote_source = 'VERSION = "0.10.0"\n'
+        remote_project = '[project]\nversion = "0.10.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.5.0\n---\nportable update\n"
         with TemporaryDirectory() as tmp:
             cli_path = os.path.join(tmp, "wiz")
@@ -478,8 +493,8 @@ class WizRegistryTests(unittest.TestCase):
                 self.assertEqual(handle.read(), "old second")
 
     def test_force_does_not_downgrade_newer_skill(self):
-        remote_source = 'VERSION = "0.8.0"\n'
-        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_source = 'VERSION = "0.9.0"\n'
+        remote_project = '[project]\nversion = "0.9.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.0.0\n---\nold\n"
         with TemporaryDirectory() as tmp:
             cli_path = os.path.join(tmp, "wiz")
@@ -504,7 +519,7 @@ class WizRegistryTests(unittest.TestCase):
 
     def test_newer_legacy_source_without_version_is_rejected(self):
         remote_source = "print('legacy wiz source')\n"
-        remote_project = '[project]\nversion = "0.9.0"\n'
+        remote_project = '[project]\nversion = "0.10.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.5.0\n---\n"
         responses = {
             "wiz.py": remote_source,
@@ -550,8 +565,8 @@ class WizRegistryTests(unittest.TestCase):
             wiz._parse_harnesses("codex,unknown")
 
     def test_update_check_does_not_write_targets(self):
-        remote_source = 'VERSION = "0.8.0"\n'
-        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_source = 'VERSION = "0.9.0"\n'
+        remote_project = '[project]\nversion = "0.9.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.4.0\n---\n"
         responses = {
             "wiz.py": remote_source,
@@ -625,7 +640,7 @@ class WizRegistryTests(unittest.TestCase):
                 result = wiz.main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(output.getvalue().strip(), "wiz 0.8.0")
+        self.assertEqual(output.getvalue().strip(), "wiz 0.9.0")
 
 
 if __name__ == "__main__":

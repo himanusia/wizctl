@@ -1,13 +1,13 @@
 ---
 name: wiz-lan-control
 description: "Control Philips WiZ smart lights on the local network via the wiz CLI. Use when the user asks about WiZ lights, status, on/off, brightness, presets, RGB, ambience, scenes, names, IDs, or forgetting a device."
-version: 1.6.0
+version: 1.7.0
 category: smart-home
 ---
 
 # WiZ Light Control
 
-Agent skill for `wiz` 0.8.0, a single-file Python CLI speaking the WiZ Local
+Agent skill for `wiz` 0.9.0, a single-file Python CLI speaking the WiZ Local
 API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies.
 
 ## Prerequisite check
@@ -156,6 +156,8 @@ re-adopted device receives a new local numeric ID; old IDs are never reused.
 ## Behavior rules
 
 - A bare control command applies to all tracked lights; append a target for one.
+- `wiz list` and status output show the detected device kind (`RGB`, `tunable white`,
+  `dimmable`, or `unknown`) between the name and IP.
 - Direct IP control works before a device is registered.
 - After a set command, the CLI reads and prints the resulting state.
 - Unreachable lights are reported once; the process does not retry-loop on UDP
