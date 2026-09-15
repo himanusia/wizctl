@@ -1,13 +1,13 @@
 ---
 name: wiz-lan-control
 description: "Control Philips WiZ smart lights on the local network via the wiz CLI. Use when the user asks about WiZ lights, status, on/off, brightness, presets, RGB, ambience, scenes, names, IDs, or forgetting a device."
-version: 1.5.0
+version: 1.6.0
 category: smart-home
 ---
 
 # WiZ Light Control
 
-Agent skill for `wiz` 0.7.0, a single-file Python CLI speaking the WiZ Local
+Agent skill for `wiz` 0.8.0, a single-file Python CLI speaking the WiZ Local
 API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies.
 
 ## Prerequisite check
@@ -32,8 +32,9 @@ wiz update [options]           # update CLI + selected harness skill copies
 ```
 
 A discovered device receives a local numeric ID. Its WiZ MAC address is stored
-as the stable UID when firmware reports it, so a DHCP IP change does not create
-a duplicate. The registry and local names live in
+as the stable UID when firmware reports it, including a `getSystemConfig` fallback
+when the initial registration response omits the MAC. A DHCP IP change therefore
+does not create a duplicate. The registry and local names live in
 `~/.config/wiz/lights.json`. The original IP/name-only cache is migrated when
 it is next written.
 
@@ -127,8 +128,10 @@ expose additional numeric IDs, which the CLI continues to accept.
 ## Targeting and lifecycle
 
 Targets can be a numeric ID, a friendly name, or an IP. Prefixing with `@` is
-recommended for unambiguous scripts. Names are case-insensitive and support a
-prefix match. An explicit empty target such as `@` is invalid and must fail.
+recommended for unambiguous scripts. Interactive commands also accept the
+natural target-first form `wiz <target> <command> [args]`. Names are
+case-insensitive and support a prefix match. An explicit empty target such as
+`@` is invalid and must fail.
 
 ```bash
 wiz rename desk @1
@@ -136,6 +139,10 @@ wiz on @desk
 wiz 40 @desk
 wiz warm 192.0.2.50
 wiz off 2
+
+wiz desk ambience romance
+wiz desk on
+wiz 2 cool
 wiz forget @desk
 wiz forget @1
 wiz forget                    # forget every tracked light

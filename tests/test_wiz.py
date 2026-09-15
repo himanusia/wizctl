@@ -50,6 +50,19 @@ class WizRegistryTests(unittest.TestCase):
             {"uid": "mac:aabbccddeeff"},
         )
 
+    def test_system_config_mac_backfills_missing_discovery_uid(self):
+        record = {"ip": "192.0.2.50", "uid": None}
+        with patch.object(wiz, "get_system_config", return_value={"mac": "44:4F:8E:B5:F9:0E"}):
+            self.assertIs(wiz.enrich_discovery_uid(record), record)
+        self.assertEqual(record["uid"], "mac:444f8eb5f90e")
+
+    def test_system_config_backfill_does_not_replace_existing_uid(self):
+        record = {"ip": "192.0.2.50", "uid": "mac:111111111111"}
+        with patch.object(wiz, "get_system_config") as get_config:
+            wiz.enrich_discovery_uid(record)
+        get_config.assert_not_called()
+        self.assertEqual(record["uid"], "mac:111111111111")
+
     def test_mac_keeps_same_id_when_ip_changes(self):
         state = wiz.empty_state()
         first = wiz.merge_discovered(
@@ -149,6 +162,54 @@ class WizRegistryTests(unittest.TestCase):
         self.assertEqual(by_ip[0]["id"], "2")
         self.assertEqual(brightness_target, "desk")
 
+    def test_record_prefix_keeps_columns_aligned_for_multi_digit_ids(self):
+        short_id = wiz._record_prefix({"id": "2", "name": "desk", "ip": "192.0.2.50"})
+        long_id = wiz._record_prefix({"id": "10", "name": "lamp", "ip": "192.0.2.51"})
+        self.assertEqual(short_id.index("desk"), long_id.index("lamp"))
+        self.assertEqual(short_id.index("192.0.2.50"), long_id.index("192.0.2.51"))
+
+    def test_target_first_syntax_normalizes_to_legacy_shape(self):
+        self.assertEqual(
+            wiz.normalize_leading_target(["desk", "ambience", "romance"]),
+            (["ambience", "romance"], "desk"),
+        )
+        self.assertEqual(
+            wiz.normalize_leading_target(["@3", "40"]),
+            (["40"], "3"),
+        )
+        self.assertEqual(
+            wiz.normalize_leading_target(["ambience", "romance", "@desk"]),
+            (["ambience", "romance", "@desk"], None),
+        )
+
+    def test_main_accepts_target_first_syntax(self):
+        state = {
+            "version": 2,
+            "next_id": 2,
+            "ignored": [],
+            "lights": [
+                {"id": "1", "uid": "mac:111111111111", "ip": "192.0.2.50", "name": "desk"},
+            ],
+        }
+        with patch.object(wiz, "load_state", return_value=state):
+            with patch.object(wiz, "cmd_control", return_value=0) as control:
+                with patch.object(sys, "argv", ["wiz", "desk", "ambience", "romance"]):
+                    result = wiz.main()
+        self.assertEqual(result, 0)
+        control.assert_called_once_with(state, "ambience", ["romance"], "desk")
+
+    def test_target_first_rejects_duplicate_trailing_target(self):
+        state = {
+            "version": 2,
+            "next_id": 2,
+            "ignored": [],
+            "lights": [],
+        }
+        with patch.object(wiz, "load_state", return_value=state):
+            with patch.object(sys, "argv", ["wiz", "desk", "ambience", "romance", "@3"]):
+                with self.assertRaises(SystemExit):
+                    wiz.main()
+
     def test_empty_explicit_target_is_rejected(self):
         state = {
             "version": 2,
@@ -228,7 +289,7 @@ class WizRegistryTests(unittest.TestCase):
 
         discover.assert_called_once_with()
         self.assertEqual(result, 0)
-        self.assertIn("[1]", output.getvalue())
+        self.assertRegex(output.getvalue(), r"\[\s*1\]\s+")
         self.assertIn("192.0.2.50", output.getvalue())
 
     def test_rgb_accepts_hash_hex_example(self):
@@ -285,8 +346,8 @@ class WizRegistryTests(unittest.TestCase):
         self.assertIn("Custom Mode 1", output.getvalue())
 
     def test_update_writes_cli_and_hermes_skill(self):
-        remote_source = 'VERSION = "0.8.0"\n'
-        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_source = 'VERSION = "0.9.0"\n'
+        remote_project = '[project]\nversion = "0.9.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.4.0\n---\nupdated\n"
         with TemporaryDirectory() as tmp:
             cli_path = os.path.join(tmp, "wiz")
@@ -313,8 +374,8 @@ class WizRegistryTests(unittest.TestCase):
                 self.assertEqual(handle.read(), remote_skill)
 
     def test_update_syncs_selected_non_hermes_harnesses(self):
-        remote_source = 'VERSION = "0.8.0"\n'
-        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_source = 'VERSION = "0.9.0"\n'
+        remote_project = '[project]\nversion = "0.9.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.5.0\n---\nportable update\n"
         with TemporaryDirectory() as tmp:
             cli_path = os.path.join(tmp, "wiz")
@@ -443,7 +504,7 @@ class WizRegistryTests(unittest.TestCase):
 
     def test_newer_legacy_source_without_version_is_rejected(self):
         remote_source = "print('legacy wiz source')\n"
-        remote_project = '[project]\nversion = "0.8.0"\n'
+        remote_project = '[project]\nversion = "0.9.0"\n'
         remote_skill = "---\nname: wiz-lan-control\nversion: 1.5.0\n---\n"
         responses = {
             "wiz.py": remote_source,
@@ -564,7 +625,7 @@ class WizRegistryTests(unittest.TestCase):
                 result = wiz.main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(output.getvalue().strip(), "wiz 0.7.0")
+        self.assertEqual(output.getvalue().strip(), "wiz 0.8.0")
 
 
 if __name__ == "__main__":

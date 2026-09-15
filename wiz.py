@@ -7,27 +7,27 @@ while its WiZ MAC address is retained as the stable identity when the DHCP IP
 changes. Friendly names are local aliases for those IDs.
 
 Usage:
-  wiz                          discover, then show status of tracked lights
-  wiz list                     show status from the local registry only
-  wiz find                     re-discover all WiZ lights on the network
-  wiz find --include-forgotten re-adopt lights previously forgotten
-  wiz --version               print the CLI version
-  wiz update [options]        update CLI and selected agent skill copies
-  wiz on | off                 turn every tracked light on / off
-  wiz <10-100>                set brightness percent (turns lights on)
-  wiz night | warm | white | cool
-                               temperature presets (night = dim warm)
-  wiz temp <2700-6500>        color temperature in Kelvin
-  wiz preset                   list default lighting and color presets
-  wiz preset <name> [target]   apply a named preset
-  wiz color <name> [target]   apply a named color preset
-  wiz rgb RRGGBB [target]     set an RGB color (also accepts #RRGGBB)
-  wiz ambience                 list known ambience/scene IDs and names
-  wiz ambience <id> [target]  activate an ambience by ID or known name
-  wiz scene <id> [target]     activate an ambience by ID or known name
-  wiz rename <name> [target]  give the targeted light(s) a friendly name
-  wiz forget [target]         remove light(s) from this CLI's registry
-  wiz add <ip>                manually add a light by IP
+  wiz                              discover, then show status of tracked lights
+  wiz list                         show status from the local registry only
+  wiz find                         re-discover all WiZ lights on the network
+  wiz find --include-forgotten     re-adopt lights previously forgotten
+  wiz --version                    print the CLI version
+  wiz update [options]             update CLI and selected agent skill copies
+  wiz on | off                     turn every tracked light on / off
+  wiz <10-100>                     set brightness percent (turns lights on)
+  wiz night | warm | white | cool  temperature presets (night = dim warm)
+  wiz temp <2700-6500>             color temperature in Kelvin
+  wiz preset                       list default lighting and color presets
+  wiz preset <name> [target]       apply a named preset
+  wiz color <name> [target]        apply a named color preset
+  wiz rgb RRGGBB [target]          set an RGB color (also accepts #RRGGBB)
+  wiz ambience                     list known ambience/scene IDs and names
+  wiz ambience <id> [target]       activate an ambience by ID or known name
+  wiz <target> ambience <id>       natural target-first form
+  wiz scene <id> [target]          activate an ambience by ID or known name
+  wiz rename <name> [target]       give the targeted light(s) a friendly name
+  wiz forget [target]              remove light(s) from this CLI's registry
+  wiz add <ip>                     manually add a light by IP
 
 RGB examples:
   wiz rgb ff8800 @desk
@@ -57,7 +57,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 STATE_VERSION = 2
 PORT = 38899
 CONF_DIR = os.path.expanduser("~/.config/wiz")
@@ -68,6 +68,7 @@ MAX_UPDATE_BYTES = 512 * 1024
 UPDATE_HARNESSES = ("hermes", "codex", "claude", "opencode")
 DISCOVERY_WAIT = 2.0
 CMD_TIMEOUT = 1.5
+SYSTEM_CONFIG_TIMEOUT = 0.75
 
 PRESETS = {"night": {"dimming": 10, "temp": 2700},
            "warm": {"temp": 2700},
@@ -130,6 +131,14 @@ AMBIENCE = {
 }
 for _custom_index in range(1, 11):
     AMBIENCE[255 + _custom_index] = "Custom Mode %d" % _custom_index
+
+
+# Commands that may use the natural target-first form:
+#   wiz <target> <command> [command args]
+TARGET_FIRST_COMMANDS = frozenset({
+    "status", "rename", "forget", "on", "off", "night", "warm", "white", "cool",
+    "temp", "preset", "color", "rgb", "ambience", "ambiance", "scene",
+})
 
 
 # Number of positional arguments before an optional trailing target.
@@ -406,6 +415,30 @@ def get_pilot(ip):
     return resp.get("result", {})
 
 
+def get_system_config(ip):
+    resp = udp_call(
+        ip,
+        {"method": "getSystemConfig", "params": {}},
+        timeout=SYSTEM_CONFIG_TIMEOUT,
+    )
+    result = resp.get("result")
+    return result if isinstance(result, dict) else {}
+
+
+def enrich_discovery_uid(record):
+    """Backfill a stable MAC UID when registration omitted it."""
+    if record.get("uid") or not record.get("ip"):
+        return record
+    try:
+        config = get_system_config(record["ip"])
+        uid = canonical_uid(config.get("mac") or config.get("deviceMac"))
+        if uid:
+            record["uid"] = uid
+    except (socket.timeout, OSError, ValueError, TypeError):
+        pass
+    return record
+
+
 def set_pilot(ip, params):
     resp = udp_call(ip, {"method": "setPilot", "params": params})
     ok = resp.get("result", {}).get("success", False)
@@ -469,7 +502,8 @@ def discover():
         pass
     finally:
         sock.close()
-    return [found[ip] for ip in sorted(found)]
+    records = [found[ip] for ip in sorted(found)]
+    return [enrich_discovery_uid(record) for record in records]
 
 
 # ---------- self-update ----------
@@ -921,6 +955,26 @@ def cmd_update(args):
 
 # ---------- command helpers ----------
 
+def normalize_leading_target(argv):
+    """Accept ``wiz <target> <command> ...`` as a natural target-first form."""
+    argv = list(argv)
+    if len(argv) < 2:
+        return argv, None
+    leading, command = argv[0], argv[1]
+    if leading in TARGET_FIRST_COMMANDS or leading in (
+        "update", "find", "add", "list", "help", "--help", "-h",
+        "version", "--version", "-V",
+    ):
+        return argv, None
+    if command not in TARGET_FIRST_COMMANDS and not command.isdigit():
+        return argv, None
+    target = leading[1:] if leading.startswith("@") else leading
+    target = target.strip()
+    if not target:
+        sys.exit("wiz: target after '@' cannot be empty")
+    return [command] + argv[2:], target
+
+
 def split_target(cmd, args):
     """Split the optional trailing target from command arguments."""
     args = list(args)
@@ -1060,7 +1114,7 @@ def _record_prefix(record):
     if not ip:
         last_ip = record.get("last_ip")
         ip = (str(last_ip) + " (offline)") if last_ip else "-"
-    return "[%s] %-12s %-15s" % (
+    return "[%3s] %-12s %-15s" % (
         record.get("id", "-"),
         _record_name(record),
         ip,
@@ -1293,6 +1347,7 @@ def main():
     if not argv:
         return cmd_status(state, auto_discover=True)
 
+    argv, leading_target = normalize_leading_target(argv)
     cmd = argv[0]
     if cmd == "update":
         return cmd_update(argv[1:])
@@ -1324,6 +1379,10 @@ def main():
         return cmd_rgb_help()
 
     args, target = split_target(cmd, argv[1:])
+    if leading_target is not None:
+        if target is not None:
+            sys.exit("wiz: target specified twice")
+        target = leading_target
     if cmd == "status":
         _validate_args(cmd, args)
         return cmd_status(state, target, auto_discover=target is None)
