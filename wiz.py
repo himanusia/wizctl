@@ -57,7 +57,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 STATE_VERSION = 2
 PORT = 38899
 CONF_DIR = os.path.expanduser("~/.config/wiz")
@@ -139,6 +139,12 @@ TARGET_FIRST_COMMANDS = frozenset({
     "status", "rename", "forget", "on", "off", "night", "warm", "white", "cool",
     "temp", "preset", "color", "rgb", "ambience", "ambiance", "scene",
 })
+DEVICE_KIND_LABELS = {
+    "rgb": "RGB",
+    "tunable-white": "tunable white",
+    "dimmable": "dimmable",
+    "unknown": "unknown",
+}
 
 
 # Number of positional arguments before an optional trailing target.
@@ -188,6 +194,27 @@ def display_uid(uid):
         return "-"
     raw = uid[4:]
     return ":".join(raw[index:index + 2] for index in range(0, 12, 2))
+
+
+def classify_module(module_name):
+    text = str(module_name or "").strip().upper()
+    if "RGB" in text:
+        return "rgb"
+    if "SHTWW" in text or "TUNABLE" in text:
+        return "tunable-white"
+    if text and ("DIM" in text or text.endswith("_D")):
+        return "dimmable"
+    return None
+
+
+def normalize_device_kind(value):
+    text = str(value or "").strip().lower().replace("_", "-").replace(" ", "-")
+    return text if text in DEVICE_KIND_LABELS else None
+
+
+def display_device_kind(record):
+    kind = normalize_device_kind(record.get("kind")) or "unknown"
+    return DEVICE_KIND_LABELS[kind]
 
 
 def _numeric_id(value):
@@ -282,6 +309,9 @@ def load_state():
             "ip": str(raw_ip) if raw_ip else None,
             "name": entry.get("name") or None,
         }
+        kind = normalize_device_kind(entry.get("kind"))
+        if kind:
+            record["kind"] = kind
         if raw_last_ip:
             record["last_ip"] = str(raw_last_ip)
         state["lights"].append(record)
@@ -305,6 +335,9 @@ def save_state(state):
             "ip": str(light["ip"]) if light.get("ip") else None,
             "name": light.get("name") or None,
         }
+        kind = normalize_device_kind(light.get("kind"))
+        if kind:
+            entry["kind"] = kind
         if light.get("last_ip"):
             entry["last_ip"] = str(light["last_ip"])
         payload["lights"].append(entry)
@@ -359,6 +392,7 @@ def merge_discovered(state, discovered, include_ignored=False):
             continue
         ip = str(item["ip"])
         uid = canonical_uid(item.get("uid") or item.get("mac"))
+        kind = normalize_device_kind(item.get("kind"))
         keys = _ignored_keys(ip, uid)
         if not include_ignored and any(key in state["ignored"] for key in keys):
             continue
@@ -392,6 +426,8 @@ def merge_discovered(state, discovered, include_ignored=False):
             record.pop("last_ip", None)
             if uid:
                 record["uid"] = uid
+        if kind:
+            record["kind"] = kind
         tracked.append(record)
     state["lights"] = _sort_lights(state["lights"])
     return tracked
@@ -426,14 +462,19 @@ def get_system_config(ip):
 
 
 def enrich_discovery_uid(record):
-    """Backfill a stable MAC UID when registration omitted it."""
-    if record.get("uid") or not record.get("ip"):
+    """Backfill stable UID and device kind from read-only system config."""
+    if not record.get("ip"):
+        return record
+    if record.get("uid") and record.get("kind"):
         return record
     try:
         config = get_system_config(record["ip"])
         uid = canonical_uid(config.get("mac") or config.get("deviceMac"))
+        kind = classify_module(config.get("moduleName"))
         if uid:
             record["uid"] = uid
+        if kind:
+            record["kind"] = kind
     except (socket.timeout, OSError, ValueError, TypeError):
         pass
     return record
@@ -1114,9 +1155,10 @@ def _record_prefix(record):
     if not ip:
         last_ip = record.get("last_ip")
         ip = (str(last_ip) + " (offline)") if last_ip else "-"
-    return "[%3s] %-12s %-15s" % (
+    return "[%3s] %-12s %-14s %-15s" % (
         record.get("id", "-"),
         _record_name(record),
+        display_device_kind(record),
         ip,
     )
 

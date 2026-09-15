@@ -10,15 +10,18 @@ no third-party dependencies. The command is named `wiz`.
 ```console
 $ wiz
 2 light(s):
-  [1] -            192.0.2.50     ON   dim=80%  mac=aa:bb:cc:dd:ee:ff
-  [2] desk         192.0.2.51     off  dim=100%
+  [  1] -            RGB            192.0.2.50       ON   dim=80%  mac=aa:bb:cc:dd:ee:ff
+  [  2] desk         tunable white  192.0.2.51       off  dim=100%
+
+The registry output shows the detected device kind (`RGB`, `tunable white`,
+`dimmable`, or `unknown`) between the friendly name and IP address.
 
 $ wiz rename desk @1
-  [1] desk         192.0.2.50     renamed to 'desk'
+  [  1] desk         RGB            192.0.2.50       renamed to 'desk'
 
 $ wiz night @desk
 1 light(s):
-  [1] desk         192.0.2.50     -> ON   10%, 2700K
+  [  1] desk         RGB            192.0.2.50       -> ON   10%, 2700K
 ```
 
 WiZ devices speak a local API over UDP port 38899. Discovery and control stay
