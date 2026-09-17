@@ -591,10 +591,10 @@ def _extract_source_version(text):
             targets = [node.target]
         if any(isinstance(target, ast.Name) and target.id == "VERSION" for target in targets):
             value = node.value
-            if isinstance(value, ast.Str):
-                versions.append(value.s)
-            elif hasattr(ast, "Constant") and isinstance(value, ast.Constant) and isinstance(value.value, str):
+            if hasattr(ast, "Constant") and isinstance(value, ast.Constant) and isinstance(value.value, str):
                 versions.append(value.value)
+            elif hasattr(ast, "Str") and isinstance(value, ast.Str):
+                versions.append(value.s)
     return versions[0] if len(versions) == 1 else None
 
 
