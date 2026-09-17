@@ -1,13 +1,13 @@
 ---
 name: wiz-lan-control
 description: "Control Philips WiZ smart lights on the local network via the wiz CLI. Use when the user asks about WiZ lights, status, on/off, brightness, presets, RGB, ambience, scenes, names, IDs, or forgetting a device."
-version: 1.7.0
+version: 1.8.0
 category: smart-home
 ---
 
 # WiZ Light Control
 
-Agent skill for `wiz` 0.9.0, a single-file Python CLI speaking the WiZ Local
+Agent skill for `wiz` 0.10.0, a single-file Python CLI speaking the WiZ Local
 API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies.
 
 ## Prerequisite check
@@ -16,8 +16,8 @@ API: JSON over UDP port 38899, LAN-only, no cloud, no dependencies.
 command -v wiz && wiz --version && wiz || echo "wiz not installed"
 ```
 
-If missing, install per https://github.com/himanusia/wizctl. Preferred:
-`pipx install git+https://github.com/himanusia/wizctl.git`; fallback: download
+If missing, install per https://github.com/himanusia/wizterm. Preferred:
+`pipx install git+https://github.com/himanusia/wizterm.git`; fallback: download
 raw `wiz.py` to `~/.local/bin/wiz`. If the machine is not on the same network
 as the bulbs, discovery reports no responses; say so instead of retrying.
 
@@ -61,8 +61,8 @@ wiz update --harness all              # sync all supported global targets
 
 The updater fetches `wiz.py`, `pyproject.toml`, and this portable skill over HTTPS,
 checks matching version metadata, compiles the candidate without executing it,
-refuses downgrades, and atomically updates installed `wiz`/`wizctl` scripts plus
-the selected skill targets. The default target is the active Hermes skill. Other
+refuses downgrades, and atomically updates the installed `wiz` script plus the
+selected skill targets. The default target is the active Hermes skill. Other
 global targets are Codex `~/.agents/skills/wiz-lan-control/SKILL.md`, Claude Code
 `~/.claude/skills/wiz-lan-control/SKILL.md`, and OpenCode
 `~/.config/opencode/skills/wiz-lan-control/SKILL.md`. It does not update other

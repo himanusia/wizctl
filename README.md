@@ -1,4 +1,4 @@
-# wizctl
+# wizterm
 
 ![Python](https://img.shields.io/badge/python-3.7%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
@@ -35,7 +35,7 @@ Paste this single line into any coding assistant: Claude Code, Codex, Cursor,
 Hermes, or another agent:
 
 ```text
-Install and set up https://github.com/himanusia/wizctl for me by following its README, then show me my lights.
+Install and set up https://github.com/himanusia/wizterm for me by following its README, then show me my lights.
 ```
 
 The README is written so an agent can follow it end to end: detect the OS,
@@ -46,13 +46,13 @@ pick an install method, learn the commands, and verify with a local `wiz` call.
 **pipx / pip**
 
 ```sh
-pipx install git+https://github.com/himanusia/wizctl.git
+pipx install git+https://github.com/himanusia/wizterm.git
 ```
 
 **curl** (macOS/Linux)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/himanusia/wizctl/main/wiz.py -o ~/.local/bin/wiz && chmod +x ~/.local/bin/wiz
+curl -fsSL https://raw.githubusercontent.com/himanusia/wizterm/main/wiz.py -o ~/.local/bin/wiz && chmod +x ~/.local/bin/wiz
 ```
 
 Make sure `~/.local/bin` is on your `PATH`.
@@ -73,7 +73,7 @@ wiz update --harness all                    # sync all supported skill targets
 `wiz update` downloads `wiz.py`, `pyproject.toml`, and the portable WiZ skill over
 HTTPS, checks that the source/package versions match, compiles the candidate
 without executing it, refuses downgrades, then atomically updates the installed
-`wiz`/`wizctl` scripts and the selected skill targets. The default skill target
+`wiz` script and the selected skill targets. The default skill target
 is the active Hermes skill under `HERMES_HOME`; the other global targets are:
 
 - Codex: `~/.agents/skills/wiz-lan-control/SKILL.md`
