@@ -27,6 +27,47 @@ $ wiz night @desk
 WiZ devices speak a local API over UDP port 38899. Discovery and control stay
 on the same LAN as the lights; nothing is sent to a cloud service.
 
+## How it works
+
+A `wiz` command is one local process: it keeps identity state in a small
+registry file and speaks the WiZ local protocol (JSON over UDP port 38899)
+directly to the bulbs. There is no cloud service, bridge, or account anywhere
+in the path.
+
+### Control path
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant wiz as wiz CLI
+    participant reg as lights.json registry
+    participant bulb as WiZ bulb (UDP 38899)
+
+    You->>wiz: wiz night @desk
+    wiz->>reg: resolve @desk
+    reg-->>wiz: id, ip, stable uid
+    wiz->>bulb: setPilot (JSON datagram)
+    bulb-->>wiz: getPilot state readback
+    wiz-->>You: prints the resulting state
+    Note over wiz,bulb: LAN only: no cloud, no bridge, no account
+```
+
+### Discovery and identity
+
+```mermaid
+flowchart TD
+    A(["wiz / wiz find"]) -->|"UDP broadcast:<br/>registration probe"| B["WiZ devices answer<br/>with IP and MAC"]
+    B --> C{"MAC included?"}
+    C -->|"yes"| D["stable uid: mac:..."]
+    C -->|"no"| E["ask getSystemConfig;<br/>otherwise the IP is the identity"]
+    E --> D
+    D --> F[("registry entry<br/>id · name · uid · ip · kind")]
+    F --> G{"light appears at<br/>a different IP later?"}
+    G -->|"same MAC"| H["same light, same id:<br/>no duplicate"]
+    G -->|"different MAC<br/>at the old IP"| I["old record goes offline;<br/>the new device gets a new id"]
+```
+
 ## Install
 
 ### With your AI agent (recommended)
