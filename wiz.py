@@ -57,12 +57,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 STATE_VERSION = 2
 PORT = 38899
 CONF_DIR = os.path.expanduser("~/.config/wiz")
 CACHE_FILE = os.path.join(CONF_DIR, "lights.json")
-REPOSITORY_URL = "https://github.com/himanusia/wizctl"
+REPOSITORY_URL = "https://github.com/himanusia/wizterm"
 DEFAULT_UPDATE_REF = "main"
 MAX_UPDATE_BYTES = 512 * 1024
 UPDATE_HARNESSES = ("hermes", "codex", "claude", "opencode")
@@ -591,10 +591,10 @@ def _extract_source_version(text):
             targets = [node.target]
         if any(isinstance(target, ast.Name) and target.id == "VERSION" for target in targets):
             value = node.value
-            if isinstance(value, ast.Str):
-                versions.append(value.s)
-            elif hasattr(ast, "Constant") and isinstance(value, ast.Constant) and isinstance(value.value, str):
+            if hasattr(ast, "Constant") and isinstance(value, ast.Constant) and isinstance(value.value, str):
                 versions.append(value.value)
+            elif hasattr(ast, "Str") and isinstance(value, ast.Str):
+                versions.append(value.s)
     return versions[0] if len(versions) == 1 else None
 
 
@@ -616,7 +616,7 @@ def _update_url(ref, path):
 
 
 def _fetch_url(url):
-    request = Request(url, headers={"User-Agent": "wizctl/%s" % VERSION})
+    request = Request(url, headers={"User-Agent": "wizterm/%s" % VERSION})
     with urlopen(request, timeout=20) as response:
         data = response.read(MAX_UPDATE_BYTES + 1)
     if len(data) > MAX_UPDATE_BYTES:
@@ -637,17 +637,14 @@ def _is_wiz_script(path):
     return (
         _extract_source_version(text) is not None
         and "def main(" in text
-        and 'REPOSITORY_URL = "https://github.com/himanusia/wizctl"' in text
+        and 'REPOSITORY_URL = "https://github.com/himanusia/wizterm"' in text
     )
 
 
 def _update_targets():
-    candidates = [
-        os.path.expanduser("~/.local/bin/wiz"),
-        os.path.expanduser("~/.local/bin/wizctl"),
-    ]
+    candidates = [os.path.expanduser("~/.local/bin/wiz")]
     argv_path = os.path.abspath(os.path.expanduser(sys.argv[0]))
-    if os.path.basename(argv_path) in ("wiz", "wizctl"):
+    if os.path.basename(argv_path) == "wiz":
         candidates.insert(0, argv_path)
     targets = []
     for candidate in candidates:

@@ -3,8 +3,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wizctl"
-version = "0.9.0"
+name = "wizterm"
+version = "0.10.0"
 description = "Control Philips WiZ lights over LAN - no cloud, no bridge, no dependencies."
 readme = "README.md"
 license = {file = "LICENSE"}
